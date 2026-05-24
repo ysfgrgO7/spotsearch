@@ -1,7 +1,7 @@
+use base64::Engine;
 use std::fs;
 use std::path::Path;
 use std::sync::OnceLock;
-use base64::Engine;
 
 #[derive(serde::Serialize, Clone)]
 pub struct AppResult {
@@ -18,17 +18,18 @@ pub fn get_apps() -> Vec<AppResult> {
     APPS_CACHE
         .get_or_init(|| {
             let mut apps = Vec::new();
-            let dirs = vec![
-                "/usr/share/applications",
-                "/usr/local/share/applications",
-            ];
+            let dirs = vec!["/usr/share/applications", "/usr/local/share/applications"];
 
             // Also check ~/.local/share/applications
             let home_apps = dirs::home_dir()
                 .map(|h| h.join(".local/share/applications"))
                 .filter(|p| p.exists());
 
-            for dir_path in dirs.iter().map(|d| std::path::PathBuf::from(d)).chain(home_apps) {
+            for dir_path in dirs
+                .iter()
+                .map(|d| std::path::PathBuf::from(d))
+                .chain(home_apps)
+            {
                 if !dir_path.exists() {
                     continue;
                 }
@@ -92,7 +93,14 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
             // Pick the first meaningful category
             let cat = raw
                 .split(';')
-                .find(|c| !c.is_empty() && *c != "Application" && *c != "GNOME" && *c != "GTK" && *c != "KDE" && *c != "Qt")
+                .find(|c| {
+                    !c.is_empty()
+                        && *c != "Application"
+                        && *c != "GNOME"
+                        && *c != "GTK"
+                        && *c != "KDE"
+                        && *c != "Qt"
+                })
                 .unwrap_or("")
                 .to_string();
             if !cat.is_empty() {

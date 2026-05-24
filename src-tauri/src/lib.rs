@@ -1,6 +1,6 @@
-use tauri::{command, AppHandle, Manager, State};
 use std::process::Command;
 use std::thread;
+use tauri::{command, AppHandle, Manager, State};
 mod apps;
 mod indexer;
 
@@ -32,9 +32,7 @@ fn search(query: &str, indexer: State<'_, indexer::Indexer>) -> Vec<SearchResult
         let app_file = app.desktop_file.to_lowercase();
 
         let matches = terms.iter().all(|term| {
-            app_name.contains(term)
-                || app_exec.contains(term)
-                || app_file.contains(term)
+            app_name.contains(term) || app_exec.contains(term) || app_file.contains(term)
         });
 
         if matches {
@@ -58,7 +56,7 @@ fn search(query: &str, indexer: State<'_, indexer::Indexer>) -> Vec<SearchResult
     for fr in &mut file_results {
         fr.subtitle = fr.path.clone();
     }
-    file_results.truncate(5);
+    file_results.truncate(30);
 
     // Combine: apps first, then files
     let mut results = app_results;
@@ -127,7 +125,7 @@ pub fn run() {
                         }
                     }
                 })
-                .build()
+                .build(),
         )
         .invoke_handler(tauri::generate_handler![search, hide_window, open_result])
         .setup(|app| {
@@ -141,6 +139,44 @@ pub fn run() {
             });
 
             app.manage(indexer_instance);
+
+            // Setup IPC socket listener for super-fast toggling
+            let app_handle = app.handle().clone();
+            thread::spawn(move || {
+                let base_dirs = directories::BaseDirs::new().expect("Failed to get base dirs");
+                let config_dir = base_dirs.config_dir().join("launcher");
+                let socket_path = config_dir.join("spotsearch.sock");
+
+                // Ensure the parent directory exists
+                if !config_dir.exists() {
+                    let _ = std::fs::create_dir_all(&config_dir);
+                }
+
+                // Remove existing socket file if it exists
+                let _ = std::fs::remove_file(&socket_path);
+
+                if let Ok(listener) = std::os::unix::net::UnixListener::bind(&socket_path) {
+                    use std::io::Read;
+                    for stream in listener.incoming() {
+                        if let Ok(mut stream) = stream {
+                            let mut buf = [0; 6];
+                            if let Ok(n) = stream.read(&mut buf) {
+                                if &buf[..n] == b"toggle" {
+                                    if let Some(window) = app_handle.get_webview_window("main") {
+                                        let is_visible = window.is_visible().unwrap_or(false);
+                                        if is_visible {
+                                            let _ = window.hide();
+                                        } else {
+                                            let _ = window.show();
+                                            let _ = window.set_focus();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            });
 
             // Set Hyprland-specific window rules so the window floats as an overlay
             if std::env::var("HYPRLAND_INSTANCE_SIGNATURE").is_ok() {
@@ -192,10 +228,11 @@ pub fn run() {
             }
 
             // System Tray Setup
-            use tauri::tray::{TrayIconBuilder, TrayIconEvent};
             use tauri::menu::{Menu, MenuItem};
+            use tauri::tray::{TrayIconBuilder, TrayIconEvent};
 
-            let toggle_i = MenuItem::with_id(app, "toggle", "Show/Hide SpotSearch", true, None::<&str>)?;
+            let toggle_i =
+                MenuItem::with_id(app, "toggle", "Show/Hide SpotSearch", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&toggle_i, &quit_i])?;
 
@@ -219,7 +256,11 @@ pub fn run() {
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click { button: tauri::tray::MouseButton::Left, .. } = event {
+                    if let TrayIconEvent::Click {
+                        button: tauri::tray::MouseButton::Left,
+                        ..
+                    } = event
+                    {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             if window.is_visible().unwrap_or(false) {

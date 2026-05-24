@@ -23,24 +23,30 @@ To build or run SpotSearch on any Linux distribution, you need **Rust**, **Node.
 Find the installation commands for your specific Linux distribution below:
 
 ### 1. Install Rust & Cargo
+
 Regardless of your Linux distro, install Rust via `rustup` (the official installer):
+
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
 Make sure to restart your shell or run `source "$HOME/.cargo/env"` to apply the PATH changes.
 
 ### 2. Install Node.js & npm
+
 Ensure you have **Node.js** (v18 or higher recommended) and **npm** installed. Use your package manager or tools like [fnm](https://github.com/Schniz/fnm) or [nvm](https://github.com/nvm-sh/nvm).
 
 ### 3. Install Distro-Specific Dependencies
 
-#### 📦 Ubuntu / Debian / Pop!_OS / Linux Mint
+#### 📦 Ubuntu / Debian / Pop!\_OS / Linux Mint
+
 ```bash
 sudo apt update
 sudo apt install -y build-essential curl wget file libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
 ```
 
 #### 📦 Fedora / RHEL
+
 ```bash
 sudo dnf check-update
 sudo dnf groupinstall -y "C Development Tools and Libraries"
@@ -48,11 +54,13 @@ sudo dnf install -y webkitgtk4.1-devel openssl-devel curl wget libappindicator-g
 ```
 
 #### 📦 Arch Linux / Manjaro
+
 ```bash
 sudo pacman -Syu --needed base-devel curl wget openssl webkit2gtk-4.1 libappindicator-gtk3 librsvg
 ```
 
 #### 📦 openSUSE
+
 ```bash
 sudo zypper refresh
 sudo zypper install -y -t pattern devel_C_C++
@@ -60,17 +68,19 @@ sudo zypper install -y webkit2gtk3-soup2-devel gtk3-devel libappindicator3-devel
 ```
 
 #### ❄️ NixOS
+
 You can use a Nix development shell. Create a `shell.nix` in the project root with the following contents, then run `nix-shell` to enter the environment:
+
 ```nix
 { pkgs ? import <nixpkgs> { } }:
 
 pkgs.mkShell {
-  nativeBuildInputs = with pkgs; [ 
-    pkg-config 
-    gobject-introspection 
-    cargo 
-    cargo-tauri 
-    nodejs 
+  nativeBuildInputs = with pkgs; [
+    pkg-config
+    gobject-introspection
+    cargo
+    cargo-tauri
+    nodejs
   ];
   buildInputs = with pkgs; [
     at-spi2-atk
@@ -96,6 +106,7 @@ pkgs.mkShell {
 Once system dependencies are ready, clone this repository and run the local development server:
 
 1. **Install Node dependencies:**
+
    ```bash
    npm install
    ```
@@ -110,11 +121,13 @@ Once system dependencies are ready, clone this repository and run the local deve
 ## 🏗️ Building and Packaging
 
 To compile a highly optimized release build of the application:
+
 ```bash
 npm run tauri build
 ```
 
 This compiles the Rust backend and packages the frontend. The build outputs will be created under:
+
 - **`.deb` package:** `src-tauri/target/release/bundle/deb/tauri-app_*.deb` (for Debian-based distros)
 - **`AppImage`:** `src-tauri/target/release/bundle/appimage/tauri-app_*.AppImage` (portable binary for any distro)
 - **Raw Executable:** `src-tauri/target/release/tauri-app`
@@ -126,29 +139,38 @@ This compiles the Rust backend and packages the frontend. The build outputs will
 Depending on your distribution, choose one of the following installation methods:
 
 ### Method 1: Using the Debian Package (`.deb`)
-For Ubuntu, Debian, Pop!_OS, etc., install the built `.deb` using `apt`:
+
+For Ubuntu, Debian, Pop!\_OS, etc., install the built `.deb` using `apt`:
+
 ```bash
 sudo apt install ./src-tauri/target/release/bundle/deb/tauri-app_*.deb
 ```
+
 This installs the app system-wide and automatically integrates it into your desktop application menus.
 
 ### Method 2: Manual Binary Installation (Any Distro)
+
 You can manually install the raw executable as a system-wide CLI tool:
+
 ```bash
 sudo cp src-tauri/target/release/tauri-app /usr/local/bin/spotsearch
 sudo chmod +x /usr/local/bin/spotsearch
 ```
 
 Or a user-specific installation (does not require root):
+
 ```bash
 mkdir -p ~/.local/bin
 cp src-tauri/target/release/tauri-app ~/.local/bin/spotsearch
 chmod +x ~/.local/bin/spotsearch
 ```
-*(Make sure `~/.local/bin` is in your system's `PATH`!)*
+
+_(Make sure `~/.local/bin` is in your system's `PATH`!)_
 
 ### Method 3: Using the Portable AppImage (Any Distro)
+
 Copy the `AppImage` to your user binary directory:
+
 ```bash
 mkdir -p ~/.local/bin
 cp src-tauri/target/release/bundle/appimage/tauri-app_*.AppImage ~/.local/bin/spotsearch
@@ -164,6 +186,7 @@ Wayland-based desktop environments (GNOME, KDE Plasma, Hyprland, etc.) restrict 
 While SpotSearch uses Tauri's global shortcut listener (which works out of the box on X11), it may not be able to bind `Super+Space` on strict Wayland setups.
 
 ### Wayland Workaround:
+
 You can register a custom global hotkey directly through your desktop environment settings to trigger SpotSearch's native toggle function.
 
 1. Open your **Desktop Environment Settings** -> **Keyboard Shortcuts** (or Custom Shortcuts).
@@ -179,7 +202,9 @@ You can register a custom global hotkey directly through your desktop environmen
 If you manually installed the binary/AppImage, you can create a desktop entry to launch SpotSearch from your application menus or add it to startup.
 
 ### 1. Create a Desktop Entry file
+
 Create a file at `~/.local/share/applications/spotsearch.desktop` and add:
+
 ```ini
 [Desktop Entry]
 Type=Application
@@ -192,16 +217,61 @@ Categories=Utility;
 ```
 
 ### 2. Copy the App Icon
+
 To display the correct icon in application menus:
+
 ```bash
 mkdir -p ~/.local/share/icons
 cp src-tauri/icons/128x128.png ~/.local/share/icons/spotsearch.png
 ```
 
 ### 3. Add to Autostart (Optional)
+
 To have SpotSearch run quietly in the background when your system starts:
+
 ```bash
 mkdir -p ~/.config/autostart
 cp ~/.local/share/applications/spotsearch.desktop ~/.config/autostart/
 ```
 
+## Additional Settings
+
+### For Hyprland We set these windows rules
+
+```lua
+----------------------
+---- Window Rules ----
+----------------------
+
+hl.window_rule({
+    name = "spotsearch-float",
+    match = {
+        title = "^(SpotSearch)$",
+    },
+    float = true,
+})
+
+hl.window_rule({
+    name = "spotsearch-pin",
+    match = {
+        title = "^(SpotSearch)$",
+    },
+    pin = true,
+})
+
+hl.window_rule({
+    name = "spotsearch-noborder",
+    match = {
+        title = "^(SpotSearch)$",
+    },
+    border_size = 0,
+})
+
+hl.window_rule({
+    name = "spotsearch-center",
+    match = {
+        title = "^(SpotSearch)$",
+    },
+    center = true,
+})
+```

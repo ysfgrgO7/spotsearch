@@ -47,11 +47,13 @@ impl Indexer {
         // Enable WAL mode so reads and writes can happen concurrently
         conn.pragma_update(None, "journal_mode", "WAL")?;
 
-        // Create the table if it doesn't exist
+        // Recreate the FTS5 table with 'path' as an indexed column.
+        // We drop it and recreate it to ensure the schema matches exactly.
+        let _ = conn.execute("DROP TABLE IF EXISTS files", []);
         conn.execute(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS files USING fts5(
+            "CREATE VIRTUAL TABLE files USING fts5(
                 name,
-                path UNINDEXED,
+                path,
                 extension UNINDEXED,
                 modified UNINDEXED
             );",
@@ -65,10 +67,9 @@ impl Indexer {
     }
 
     /// Build the index using a SEPARATE write connection so search queries
-    /// are never blocked. WAL mode allows concurrent readers + single writer.
+    /// are never blocked. SQLite Transaction ensures batched inserts take <200ms.
     pub fn build_index(&self) {
-        // Open a dedicated write connection — does NOT touch self.read_conn
-        let write_conn = match Connection::open(&self.db_path) {
+        let mut write_conn = match Connection::open(&self.db_path) {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("[SpotSearch] Failed to open write connection: {}", e);
@@ -76,96 +77,87 @@ impl Indexer {
             }
         };
         let _ = write_conn.pragma_update(None, "journal_mode", "WAL");
+        let _ = write_conn.pragma_update(None, "synchronous", "NORMAL");
 
         let base_dirs = BaseDirs::new().unwrap();
         let home_dir = base_dirs.home_dir();
 
-        // Read XDG user directories from ~/.config/user-dirs.dirs
-        let mut deep_dirs = parse_xdg_user_dirs(home_dir);
+        // Read XDG user directories from ~/.config/user-dirs.dirs to check for custom dirs outside $HOME
+        let deep_dirs = parse_xdg_user_dirs(home_dir);
 
-        // Also add common dev directories as extras (these aren't in the XDG spec)
-        for extra in &["Projects", "Code", "dev", "work", "src"] {
-            let p = home_dir.join(extra);
-            if p.exists() && !deep_dirs.contains(&p) {
-                deep_dirs.push(p);
+        let mut scan_dirs = vec![home_dir.to_path_buf()];
+
+        // Also add custom directories that are outside of $HOME
+        for dir in deep_dirs {
+            if !dir.starts_with(home_dir) && dir.exists() && !scan_dirs.contains(&dir) {
+                scan_dirs.push(dir);
             }
         }
 
-        // Deduplicate and remove $HOME itself (we handle that separately with depth 1)
-        deep_dirs.retain(|d| d != home_dir && d.exists());
-        deep_dirs.sort();
-        deep_dirs.dedup();
+        // Start transaction for lightning fast batched inserts
+        let tx = match write_conn.transaction() {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("[SpotSearch] Failed to start transaction: {}", e);
+                return;
+            }
+        };
 
-        let _ = write_conn.execute("DELETE FROM files", []);
-
-        let mut stmt = write_conn
-            .prepare("INSERT INTO files (name, path, extension, modified) VALUES (?1, ?2, ?3, ?4)")
-            .unwrap();
+        let _ = tx.execute("DELETE FROM files", []);
 
         let mut count: usize = 0;
+        {
+            let mut stmt = match tx.prepare("INSERT INTO files (name, path, extension, modified) VALUES (?1, ?2, ?3, ?4)") {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("[SpotSearch] Failed to prepare statement: {}", e);
+                    return;
+                }
+            };
 
-        // Index files directly in $HOME (depth 1 only — no recursion)
-        if let Ok(entries) = fs::read_dir(home_dir) {
-            for entry in entries.flatten() {
-                if let Ok(ft) = entry.file_type() {
-                    if ft.is_file() {
-                        let path = entry.path();
-                        let fname = path.file_name().unwrap_or_default().to_string_lossy();
-                        if fname.starts_with('.') {
-                            continue;
+            for dir in scan_dirs {
+                let max_depth = if &dir == home_dir { 7 } else { 6 };
+
+                for entry in WalkDir::new(&dir)
+                    .max_depth(max_depth)
+                    .follow_links(false)
+                    .into_iter()
+                    .filter_entry(|e| {
+                        let file_name = e.file_name().to_string_lossy();
+                        if file_name.starts_with('.') {
+                            return false;
                         }
-                        let ext = path.extension().unwrap_or_default().to_string_lossy();
-                        if EXCLUDED_EXTENSIONS.contains(&ext.as_ref()) {
-                            continue;
+                        !EXCLUDED_DIRS.contains(&file_name.as_ref())
+                    })
+                {
+                    if let Ok(entry) = entry {
+                        if entry.file_type().is_file() {
+                            let path = entry.path();
+                            let name = path.file_name().unwrap_or_default().to_string_lossy();
+                            let ext = path.extension().unwrap_or_default().to_string_lossy();
+
+                            if EXCLUDED_EXTENSIONS.contains(&ext.as_ref()) {
+                                continue;
+                            }
+
+                            let path_str = path.to_string_lossy();
+                            let _ = stmt.execute(params![name, path_str, ext, ""]);
+                            count += 1;
                         }
-                        let _ = stmt.execute(params![fname, path.to_string_lossy(), ext, ""]);
-                        count += 1;
                     }
                 }
             }
         }
 
-        // Deep scan known directories (up to depth 6)
-        for dir in deep_dirs {
-            if !dir.exists() {
-                continue;
-            }
-
-            for entry in WalkDir::new(&dir)
-                .max_depth(6)
-                .follow_links(false)
-                .into_iter()
-                .filter_entry(|e| {
-                    let file_name = e.file_name().to_string_lossy();
-                    if file_name.starts_with('.') {
-                        return false;
-                    }
-                    !EXCLUDED_DIRS.contains(&file_name.as_ref())
-                })
-            {
-                if let Ok(entry) = entry {
-                    if entry.file_type().is_file() {
-                        let path = entry.path();
-                        let name = path.file_name().unwrap_or_default().to_string_lossy();
-                        let ext = path.extension().unwrap_or_default().to_string_lossy();
-
-                        if EXCLUDED_EXTENSIONS.contains(&ext.as_ref()) {
-                            continue;
-                        }
-
-                        let path_str = path.to_string_lossy();
-                        let _ = stmt.execute(params![name, path_str, ext, ""]);
-                        count += 1;
-                    }
-                }
-            }
+        if let Err(e) = tx.commit() {
+            eprintln!("[SpotSearch] Failed to commit transaction: {}", e);
+        } else {
+            eprintln!("[SpotSearch] Indexed {} files in transaction", count);
         }
-
-        eprintln!("[SpotSearch] Indexed {} files", count);
     }
 
-    /// Fuzzy search: pull candidates from FTS5 prefix match + LIKE fallback,
-    /// then re-rank with a fuzzy scoring algorithm.
+    /// Fuzzy search: query matches against FTS5 table (indexing both name and path),
+    /// supplement with substring LIKE fallback, and rank using advanced fuzzy scoring.
     pub fn search(&self, query: &str) -> Vec<SearchResult> {
         let query = query.trim();
         if query.is_empty() {
@@ -175,14 +167,32 @@ impl Indexer {
         let mut results = Vec::new();
         let lower_query = query.to_lowercase();
 
-        if let Ok(conn) = self.read_conn.lock() {
-            let first_term = lower_query.split_whitespace().next().unwrap_or(&lower_query);
-            let fts_query = format!("{}*", first_term);
+        // 1. Sanitize the query terms for FTS5
+        let terms: Vec<String> = lower_query
+            .split_whitespace()
+            .map(|s| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>())
+            .filter(|s| !s.is_empty())
+            .collect();
 
-            // Pull up to 50 candidates from FTS5
-            if let Ok(mut stmt) =
-                conn.prepare("SELECT name, path, extension FROM files WHERE name MATCH ?1 LIMIT 50")
-            {
+        if terms.is_empty() {
+            return Vec::new();
+        }
+
+        // Keep track of added paths to prevent duplicate candidates
+        let mut seen_paths = std::collections::HashSet::new();
+
+        if let Ok(conn) = self.read_conn.lock() {
+            // Construct safe FTS5 query: e.g. "spot* AND lib*"
+            let fts_query = terms
+                .iter()
+                .map(|t| format!("{}*", t))
+                .collect::<Vec<_>>()
+                .join(" AND ");
+
+            // Query FTS5 table - matching against the virtual table name searches both indexed columns: name and path
+            if let Ok(mut stmt) = conn.prepare(
+                "SELECT name, path, extension FROM files WHERE files MATCH ?1 LIMIT 300",
+            ) {
                 let rows = stmt.query_map(params![fts_query], |row| {
                     let name: String = row.get(0)?;
                     let path: String = row.get(1)?;
@@ -193,8 +203,9 @@ impl Indexer {
                 if let Ok(rows) = rows {
                     for row in rows.flatten() {
                         let (name, path, ext) = row;
-                        let score = fuzzy_score(&lower_query, &name.to_lowercase(), &ext);
+                        let score = fuzzy_score(query, &name, &path, &ext);
                         if score > 0 {
+                            seen_paths.insert(path.clone());
                             results.push((
                                 SearchResult {
                                     name,
@@ -211,92 +222,171 @@ impl Indexer {
                 }
             }
 
-            // LIKE fallback for terms that FTS5 prefix might miss
-            let like_pattern = format!("%{}%", lower_query.replace(' ', "%"));
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT name, path, extension FROM files WHERE lower(name) LIKE ?1 LIMIT 30",
-            ) {
-                let rows = stmt.query_map(params![like_pattern], |row| {
-                    let name: String = row.get(0)?;
-                    let path: String = row.get(1)?;
-                    let ext: String = row.get(2)?;
-                    Ok((name, path, ext))
-                });
+            // 2. Substring LIKE fallback if we didn't get enough candidates or to cover non-word-boundary matches
+            if results.len() < 150 {
+                // Construct a LIKE pattern: %term1%term2%
+                let like_pattern = format!("%{}%", terms.join("%"));
+                if let Ok(mut stmt) = conn.prepare(
+                    "SELECT name, path, extension FROM files WHERE lower(name) LIKE ?1 OR lower(path) LIKE ?1 LIMIT 150",
+                ) {
+                    let rows = stmt.query_map(params![like_pattern], |row| {
+                        let name: String = row.get(0)?;
+                        let path: String = row.get(1)?;
+                        let ext: String = row.get(2)?;
+                        Ok((name, path, ext))
+                    });
 
-                if let Ok(rows) = rows {
-                    for row in rows.flatten() {
-                        let (name, path, ext) = row;
-                        if results.iter().any(|(r, _)| r.path.as_deref() == Some(&path)) {
-                            continue;
-                        }
-                        let score = fuzzy_score(&lower_query, &name.to_lowercase(), &ext);
-                        if score > 0 {
-                            results.push((
-                                SearchResult {
-                                    name,
-                                    path: Some(path),
-                                    icon_data: None,
-                                    is_app: false,
-                                    exec: None,
-                                    subtitle: None,
-                                },
-                                score,
-                            ));
+                    if let Ok(rows) = rows {
+                        for row in rows.flatten() {
+                            let (name, path, ext) = row;
+                            if seen_paths.contains(&path) {
+                                continue;
+                            }
+                            let score = fuzzy_score(query, &name, &path, &ext);
+                            if score > 0 {
+                                seen_paths.insert(path.clone());
+                                results.push((
+                                    SearchResult {
+                                        name,
+                                        path: Some(path),
+                                        icon_data: None,
+                                        is_app: false,
+                                        exec: None,
+                                        subtitle: None,
+                                    },
+                                    score,
+                                ));
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Sort by score descending
-        results.sort_by(|a, b| b.1.cmp(&a.1));
-        results.into_iter().map(|(r, _)| r).take(10).collect()
+        // Sort by score descending, then alphabetically by name if scores are equal
+        results.sort_by(|a, b| {
+            b.1.cmp(&a.1)
+                .then_with(|| a.0.name.len().cmp(&b.0.name.len()))
+                .then_with(|| a.0.name.cmp(&b.0.name))
+        });
+
+        results.into_iter().map(|(r, _)| r).take(40).collect()
     }
 }
 
-/// Simple fuzzy scoring
-fn fuzzy_score(query: &str, name: &str, ext: &str) -> i32 {
-    let mut score: i32 = 0;
+/// Advanced fuzzy scoring evaluating filename similarity, subsequence clustering, directory depth, and priority paths.
+fn fuzzy_score(query: &str, name: &str, path: &str, ext: &str) -> i32 {
+    let query_lower = query.to_lowercase();
+    let name_lower = name.to_lowercase();
+    let path_lower = path.to_lowercase();
 
-    if name == query {
-        return 1000;
-    }
-    if name.starts_with(query) {
-        score += 500;
-    }
-    if name.contains(query) {
-        score += 200;
-    }
-    if is_subsequence(query, name) {
-        score += 50;
+    if name_lower == query_lower {
+        return 10000;
     }
 
-    let terms: Vec<&str> = query.split_whitespace().collect();
-    if terms.len() > 1 {
-        let all_match = terms.iter().all(|t| name.contains(t));
-        if all_match {
-            score += 150;
+    let mut score = 0;
+
+    // 1. Evaluate filename match strength
+    if name_lower.starts_with(&query_lower) {
+        score += 5000;
+    } else if let Some(idx) = name_lower.find(&query_lower) {
+        // High bonus if substring starts at a word boundary
+        if idx == 0 || !name_lower.chars().nth(idx - 1).map_or(false, |c| c.is_alphanumeric()) {
+            score += 3000;
         } else {
+            score += 1500;
+        }
+    } else if is_subsequence(&query_lower, &name_lower) {
+        score += 800;
+        score += score_subsequence_clustering(&query_lower, &name_lower);
+    } else if path_lower.contains(&query_lower) {
+        // Matches path, but not filename directly
+        score += 400;
+    } else if is_subsequence(&query_lower, &path_lower) {
+        score += 100;
+    }
+
+    // 2. Evaluate multi-word term matches
+    let terms: Vec<&str> = query_lower.split_whitespace().collect();
+    if terms.len() > 1 {
+        let name_matches = terms.iter().filter(|&&t| name_lower.contains(t)).count();
+        let path_matches = terms.iter().filter(|&&t| path_lower.contains(t)).count();
+
+        if name_matches == terms.len() {
+            // All terms match the filename
+            score += 2000;
+        } else if name_matches + path_matches >= terms.len() {
+            // Terms are distributed across filename and directory paths
+            score += 1000 + (name_matches as i32 * 300);
+        } else {
+            // Not all terms matched, query is mismatch
+            return 0;
+        }
+    } else if terms.len() == 1 {
+        if score == 0 {
             return 0;
         }
     }
 
-    if score == 0 {
-        return 0;
+    // 3. Folder depth penalty (prefer shallow files)
+    let slash_count = path.chars().filter(|&c| c == '/').count() as i32;
+    score -= slash_count * 50;
+
+    // 4. Name and path length penalty (prefer exact fits over huge strings)
+    score -= (name.len() as i32) * 5;
+    score -= (path.len() as i32) * 2;
+
+    // 5. High-priority directory bonuses
+    if path_lower.contains("/projects/") || path_lower.contains("/src/") {
+        score += 400;
+    }
+    if path_lower.contains("/desktop/") || path_lower.contains("/documents/") || path_lower.contains("/downloads/") {
+        score += 250;
     }
 
-    // Media bonus
-    let media_exts = [
-        "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico", "tiff",
-        "mp4", "mkv", "avi", "mov", "webm", "flv", "wmv",
-        "mp3", "flac", "wav", "ogg", "aac", "m4a", "opus",
-        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods",
+    // 6. Common code, document, and media formats bonus
+    let important_exts = [
+        "rs", "js", "ts", "py", "sh", "json", "html", "css", "md", "txt", // Code / text
+        "pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", // Documents
+        "png", "jpg", "jpeg", "svg", "webp", // Graphics
+        "mp3", "mp4", "mkv", "wav", // Media
     ];
-    if media_exts.contains(&ext) {
-        score += 100;
+    if important_exts.contains(&ext.to_lowercase().as_str()) {
+        score += 150;
     }
 
-    score += (100_i32).saturating_sub(name.len() as i32);
+    score
+}
+
+fn score_subsequence_clustering(needle: &str, haystack: &str) -> i32 {
+    let mut score = 0;
+    let mut needle_chars = needle.chars().peekable();
+    let mut last_idx = None;
+    let mut total_distance = 0;
+
+    for (h_idx, h_char) in haystack.chars().enumerate() {
+        if let Some(&n_char) = needle_chars.peek() {
+            if h_char == n_char {
+                needle_chars.next();
+                if let Some(prev) = last_idx {
+                    let dist = h_idx - prev;
+                    total_distance += dist;
+                }
+                last_idx = Some(h_idx);
+            }
+        } else {
+            break;
+        }
+    }
+
+    if needle_chars.peek().is_none() && last_idx.is_some() {
+        let needle_len = needle.len();
+        if needle_len > 1 {
+            let ideal_dist = needle_len - 1;
+            let excess = total_distance - ideal_dist;
+            score += (250_i32).saturating_sub((excess as i32) * 15);
+        }
+    }
     score
 }
 
