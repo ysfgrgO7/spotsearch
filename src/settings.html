@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SpotSearch Settings</title>
+  <!-- Premium Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <div class="settings-container">
+    <!-- Sidebar Navigation -->
+    <div class="sidebar">
+      <div class="sidebar-title">SpotSearch</div>
+      <div class="tab-btn active" data-tab="general">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="9" y1="9" x2="21" y2="9"/><line x1="9" y1="15" x2="21" y2="15"/></svg>
+        General
+      </div>
+      <div class="tab-btn" data-tab="appearance">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Appearance
+      </div>
+      <div class="tab-btn" data-tab="paths">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        Search Paths
+      </div>
+      <div class="tab-btn" data-tab="exclusions">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+        Exclusions
+      </div>
+    </div>
+
+    <!-- Main Content Panel -->
+    <div class="content-panel">
+      <!-- General Settings Tab -->
+      <div id="general" class="tab-content active">
+        <h2>General Configuration</h2>
+        <p class="tab-desc">Adjust indexer parameters and launcher options for SpotSearch.</p>
+
+        <div class="form-group">
+          <div class="label-with-val">
+            <label for="depth-input">Max Index Depth</label>
+            <span id="depth-val" class="field-val">7</span>
+          </div>
+          <input type="range" id="depth-input" min="1" max="15" step="1" value="7">
+          <span class="input-hint">Controls how deep the indexer will scan subdirectories (Defaults to 7. Deeper values index more files but take longer).</span>
+        </div>
+
+        <div class="form-group" style="margin-top: 24px;">
+          <div class="checkbox-container">
+            <input type="checkbox" id="hide-on-blur-input" checked>
+            <label for="hide-on-blur-input">Hide window on focus loss</label>
+          </div>
+          <span class="input-hint">When enabled, clicking outside the window or focusing another application will automatically close SpotSearch. When disabled, the window stays open and retains focus until ESC is pressed or an item is launched.</span>
+        </div>
+      </div>
+
+      <!-- Appearance Tab -->
+      <div id="appearance" class="tab-content">
+        <h2>Appearance & Theme</h2>
+        <p class="tab-desc">Customize the color palette of your SpotSearch window. Changes apply in real-time!</p>
+
+        <div class="color-pickers-grid">
+          <div class="color-picker-item">
+            <label for="color-bg">Window Background</label>
+            <div class="color-picker-input-wrap">
+              <input type="color" id="color-bg" value="#2b2b2b">
+              <span class="color-hex-label">#2b2b2b</span>
+            </div>
+          </div>
+
+          <div class="color-picker-item">
+            <label for="color-text">Primary Text</label>
+            <div class="color-picker-input-wrap">
+              <input type="color" id="color-text" value="#f4f4f5">
+              <span class="color-hex-label">#f4f4f5</span>
+            </div>
+          </div>
+
+          <div class="color-picker-item">
+            <label for="color-dim">Muted / Secondary Text</label>
+            <div class="color-picker-input-wrap">
+              <input type="color" id="color-dim" value="#a1a1aa">
+              <span class="color-hex-label">#a1a1aa</span>
+            </div>
+          </div>
+
+          <div class="color-picker-item">
+            <label for="color-accent">Accent Theme Color</label>
+            <div class="color-picker-input-wrap">
+              <input type="color" id="color-accent" value="#8560f6">
+              <span class="color-hex-label">#8560f6</span>
+            </div>
+          </div>
+        </div>
+        <span class="input-hint">Secondary opacities (e.g. background glow and highlight selections) are dynamically calculated based on your Accent Theme color to ensure a harmonious design.</span>
+      </div>
+
+      <!-- Search Paths Tab -->
+      <div id="paths" class="tab-content">
+        <h2>Search Directories</h2>
+        <p class="tab-desc">Add or remove directories that SpotSearch will scan to build its database.</p>
+
+        <div class="paths-list-wrap">
+          <div id="paths-list" class="paths-list">
+            <!-- Dynamically injected -->
+          </div>
+        </div>
+
+        <div class="add-path-wrap">
+          <input type="text" id="new-path-input" placeholder="Enter absolute directory path (e.g. /home/user/Documents)" spellcheck="false">
+          <button id="add-path-btn" class="action-btn-accent">Add Path</button>
+        </div>
+      </div>
+
+      <!-- Exclusions Tab -->
+      <div id="exclusions" class="tab-content">
+        <h2>File & Folder Exclusions</h2>
+        <p class="tab-desc">Exclude specific folder names and file extensions from being indexed.</p>
+
+        <div class="exclusion-section">
+          <h3>Excluded Directory Names</h3>
+          <p class="sub-desc">Folders matching these exact names will be completely skipped during scan.</p>
+          <div id="excluded-dirs-container" class="tag-container">
+            <!-- Dynamically injected -->
+          </div>
+          <div class="add-tag-wrap">
+            <input type="text" id="new-dir-input" placeholder="e.g. target, cache" spellcheck="false">
+            <button id="add-dir-btn" class="action-btn">Add Folder</button>
+          </div>
+        </div>
+
+        <div class="exclusion-section" style="margin-top: 32px;">
+          <h3>Excluded Extensions</h3>
+          <p class="sub-desc">Files with these extensions will be completely ignored (e.g. log, tmp, class).</p>
+          <div id="excluded-exts-container" class="tag-container">
+            <!-- Dynamically injected -->
+          </div>
+          <div class="add-tag-wrap">
+            <input type="text" id="new-ext-input" placeholder="e.g. log, pyc" spellcheck="false">
+            <button id="add-ext-btn" class="action-btn">Add Ext</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Panel Actions -->
+      <div class="footer-actions">
+        <div id="status-msg" class="status-msg"></div>
+        <div class="btn-group">
+          <button id="cancel-btn" class="btn-secondary">Cancel</button>
+          <button id="save-btn" class="btn-primary">Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Javascript -->
+  <script type="module" src="settings.js"></script>
+</body>
+</html>

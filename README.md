@@ -179,99 +179,88 @@ chmod +x ~/.local/bin/spotsearch
 
 ---
 
-## 🖥️ Wayland & Hotkey Workaround
+## 🖥️ Window Manager & Desktop Integrations
 
-Wayland-based desktop environments (GNOME, KDE Plasma, Hyprland, etc.) restrict global hotkey captures for security reasons.
+SpotSearch is designed to be fully desktop-agnostic. Rather than managing complex, fragile internal key capture libraries, SpotSearch relies entirely on your window manager (WM) or desktop environment (DE) for global hotkeys. 
 
-While SpotSearch uses Tauri's global shortcut listener (which works out of the box on X11), it may not be able to bind `Super+Space` on strict Wayland setups.
-
-### Wayland Workaround:
-
-You can register a custom global hotkey directly through your desktop environment settings to trigger SpotSearch's native toggle function.
-
-1. Open your **Desktop Environment Settings** -> **Keyboard Shortcuts** (or Custom Shortcuts).
-2. Create a new custom shortcut:
-   - **Name:** Toggle SpotSearch
-   - **Trigger/Hotkey:** `Super+Space` (or your preferred key combination)
-   - **Command:** `spotsearch --toggle` (or `tauri-app --toggle` depending on your installation name)
+When you configure a keyboard shortcut to call `spotsearch --toggle`, your system instantly sends an IPC message to the running daemon, toggling the launcher in less than **2ms**.
 
 ---
 
-## ⚙️ Desktop Integration & Autostart (Optional)
+### 👑 1. Hyprland Configuration (Recommended)
 
-If you manually installed the binary/AppImage, you can create a desktop entry to launch SpotSearch from your application menus or add it to startup.
+Add the following rules to your `~/.config/hypr/hyprland.conf` to make SpotSearch overlay perfectly and toggle seamlessly:
 
-### 1. Create a Desktop Entry file
-
-Create a file at `~/.local/share/applications/spotsearch.desktop` and add:
+#### 🪟 Window Rules
+Make sure SpotSearch is registered to float, pin on top of all virtual desktops, gain focus immediately, and stay centered without window borders or drop-shadow clipping:
 
 ```ini
-[Desktop Entry]
-Type=Application
-Name=SpotSearch
-Exec=spotsearch
-Icon=spotsearch
-Comment=A lightweight, fast floating search bar for Linux
-Terminal=false
-Categories=Utility;
+# SpotSearch Overlay Window Rules
+windowrulev2 = float, class:^(spotsearch)$, title:^(SpotSearch)$
+windowrulev2 = pin, class:^(spotsearch)$, title:^(SpotSearch)$
+windowrulev2 = stayfocused, class:^(spotsearch)$, title:^(SpotSearch)$
+windowrulev2 = noborder, class:^(spotsearch)$, title:^(SpotSearch)$
+windowrulev2 = noshadow, class:^(spotsearch)$, title:^(SpotSearch)$
+windowrulev2 = center, class:^(spotsearch)$, title:^(SpotSearch)$
 ```
 
-### 2. Copy the App Icon
+#### 🎮 Keyboard Shortcut
+Bind your preferred hotkey (e.g. `Super+Space` or `Super+D`) to toggle the launcher:
 
-To display the correct icon in application menus:
-
-```bash
-mkdir -p ~/.local/share/icons
-cp src-tauri/icons/128x128.png ~/.local/share/icons/spotsearch.png
+```ini
+# Toggle SpotSearch Overlay
+bind = SUPER, Space, exec, spotsearch --toggle
 ```
 
-### 3. Add to Autostart (Optional)
+#### ⚙️ Autostart Daemon
+To have SpotSearch run quietly in the background on startup:
 
-To have SpotSearch run quietly in the background when your system starts:
-
-```bash
-mkdir -p ~/.config/autostart
-cp ~/.local/share/applications/spotsearch.desktop ~/.config/autostart/
+```ini
+# Start SpotSearch Daemon
+exec-once = spotsearch
 ```
 
-## Additional Settings
+---
 
-### For Hyprland We set these windows rules
+### 🪵 2. i3 / Sway Configuration
 
-```lua
-----------------------
----- Window Rules ----
-----------------------
+Add these settings to your Sway configuration (`~/.config/sway/config`) or i3 configuration (`~/.config/i3/config`):
 
-hl.window_rule({
-    name = "spotsearch-float",
-    match = {
-        title = "^(SpotSearch)$",
-    },
-    float = true,
-})
-
-hl.window_rule({
-    name = "spotsearch-pin",
-    match = {
-        title = "^(SpotSearch)$",
-    },
-    pin = true,
-})
-
-hl.window_rule({
-    name = "spotsearch-noborder",
-    match = {
-        title = "^(SpotSearch)$",
-    },
-    border_size = 0,
-})
-
-hl.window_rule({
-    name = "spotsearch-center",
-    match = {
-        title = "^(SpotSearch)$",
-    },
-    center = true,
-})
+#### 🪟 Window Rules & Position
+```ini
+# Floating rules for SpotSearch
+for_window [class="spotsearch" title="SpotSearch"] floating enable, border none, move position center, sticky enable
 ```
+
+#### 🎮 Keyboard Shortcut
+```ini
+# Toggle shortcut
+bindsym Mod4+space exec spotsearch --toggle
+```
+
+#### ⚙️ Autostart Daemon
+```ini
+# Autostart daemon
+exec --no-startup-id spotsearch
+```
+
+---
+
+### 🖥️ 3. GNOME / KDE / XFCE
+
+Traditional desktop environments can bind the toggle command natively via system settings:
+
+1. Open **System Settings** -> **Keyboard** -> **Keyboard Shortcuts** (or Custom Shortcuts).
+2. Add a new custom shortcut:
+   - **Name:** `Toggle SpotSearch`
+   - **Command:** `spotsearch --toggle`
+   - **Shortcut:** Press `Super+Space` (or your preferred combination).
+
+To add SpotSearch to autostart:
+- Search for **Startup Applications** in your menu, click **Add**, and input `spotsearch` as the command.
+- Alternatively, copy the `.desktop` launcher to your autostart directory:
+  ```bash
+  mkdir -p ~/.config/autostart
+  cp ~/.local/share/applications/spotsearch.desktop ~/.config/autostart/
+  ```
+

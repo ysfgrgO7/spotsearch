@@ -321,3 +321,39 @@ kbd {
   justify-content: center;
   min-width: 14px;
 }
+
+/* Sleek Settings Gear Button */
+.settings-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease;
+  outline: none;
+}
+
+.settings-icon-btn:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+}
+
+.settings-icon-btn:active {
+  transform: scale(0.92);
+}
+
+.settings-icon-btn .settings-icon {
+  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.settings-icon-btn:hover .settings-icon {
+  transform: rotate(45deg);
+  color: var(--accent-bar);
+}

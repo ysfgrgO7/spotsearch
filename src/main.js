@@ -21,6 +21,17 @@ window.addEventListener("DOMContentLoaded", () => {
 
   inputEl.focus();
 
+  // Load custom theme
+  invoke("get_config")
+    .then((config) => {
+      if (config && config.theme) {
+        applyTheme(config.theme);
+      }
+    })
+    .catch((err) => {
+      console.error("Failed to load custom theme:", err);
+    });
+
   let debounceTimer;
   inputEl.addEventListener("input", (e) => {
     updateVisibility(e.target.value);
@@ -34,6 +45,9 @@ window.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Escape") {
       e.preventDefault();
       invoke("hide_window");
+    } else if (e.key === "," && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      invoke("open_settings");
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
       if (selectedIndex < currentResults.length - 1) {
@@ -54,10 +68,29 @@ window.addEventListener("DOMContentLoaded", () => {
     }
   });
 
+  const settingsBtn = document.getElementById("settings-btn");
+  if (settingsBtn) {
+    settingsBtn.addEventListener("click", () => {
+      invoke("open_settings");
+    });
+  }
+
   // Focus input when window gains focus
   window.addEventListener("focus", () => {
     inputEl.focus();
-    inputEl.select();
+    const len = inputEl.value.length;
+    inputEl.setSelectionRange(len, len);
+  });
+
+  // Keep focus locked to the search input within the window
+  document.addEventListener("mousedown", (e) => {
+    const settingsBtn = document.getElementById("settings-btn");
+    if (e.target !== settingsBtn && !settingsBtn?.contains(e.target)) {
+      // Small timeout to allow other click events (like result selection) to register first
+      setTimeout(() => {
+        if (inputEl) inputEl.focus();
+      }, 0);
+    }
   });
 });
 
@@ -251,4 +284,15 @@ async function openResult(result) {
   } catch (error) {
     console.error("Open error:", error);
   }
+}
+
+function applyTheme(colors) {
+  if (!colors) return;
+  const root = document.documentElement;
+  root.style.setProperty('--bg-color', colors.bg_color || '#2b2b2b');
+  root.style.setProperty('--text-color', colors.text_color || '#f4f4f5');
+  root.style.setProperty('--text-dim', colors.text_dim || '#a1a1aa');
+  root.style.setProperty('--accent-bg', colors.accent_bg || 'rgba(139, 92, 246, 0.15)');
+  root.style.setProperty('--accent-bar', colors.accent_bar || '#8560f6');
+  root.style.setProperty('--glow-color', colors.glow_color || 'rgba(139, 92, 246, 0.12)');
 }

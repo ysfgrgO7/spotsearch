@@ -12,26 +12,7 @@ pub struct Indexer {
     read_conn: Arc<Mutex<Connection>>,
 }
 
-/// Excluded directory names — junk that should never be indexed.
-const EXCLUDED_DIRS: &[&str] = &[
-    "node_modules", ".git", ".cache", ".cargo", ".npm", ".rustup",
-    "target", "Trash", ".local", ".config", ".mozilla", ".thunderbird",
-    "__pycache__", ".pycache", ".venv", "venv", "env", ".env",
-    ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-    "dist", "build", ".next", ".nuxt", ".svelte-kit",
-    ".gradle", ".m2", ".ivy2",
-    "vendor", "bower_components",
-    ".steam", ".wine", "snap",
-    ".thumbnails", ".Trash-1000",
-];
 
-/// File extensions to completely skip (binary junk, compiled output, etc.)
-const EXCLUDED_EXTENSIONS: &[&str] = &[
-    "o", "so", "a", "dylib", "pyc", "pyo", "class", "jar",
-    "lock", "log", "tmp", "swp", "swo",
-    "min.js", "min.css", "map",
-    "whl", "egg-info",
-];
 
 impl Indexer {
     pub fn new() -> Result<Self> {
@@ -49,9 +30,11 @@ impl Indexer {
 
         // Recreate the FTS5 table with 'path' as an indexed column.
         // We drop it and recreate it to ensure the schema matches exactly.
-        let _ = conn.execute("DROP TABLE IF EXISTS files", []);
+        if let Err(e) = conn.execute("DROP TABLE IF EXISTS files", []) {
+            eprintln!("[SpotSearch] Warning: failed to drop table files: {}", e);
+        }
         conn.execute(
-            "CREATE VIRTUAL TABLE files USING fts5(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS files USING fts5(
                 name,
                 path,
                 extension UNINDEXED,
@@ -68,7 +51,13 @@ impl Indexer {
 
     /// Build the index using a SEPARATE write connection so search queries
     /// are never blocked. SQLite Transaction ensures batched inserts take <200ms.
+    #[allow(dead_code)]
     pub fn build_index(&self) {
+        let config = crate::config::AppConfig::load();
+        self.build_index_with_config(&config);
+    }
+
+    pub fn build_index_with_config(&self, config: &crate::config::AppConfig) {
         let mut write_conn = match Connection::open(&self.db_path) {
             Ok(c) => c,
             Err(e) => {
@@ -82,16 +71,17 @@ impl Indexer {
         let base_dirs = BaseDirs::new().unwrap();
         let home_dir = base_dirs.home_dir();
 
-        // Read XDG user directories from ~/.config/user-dirs.dirs to check for custom dirs outside $HOME
-        let deep_dirs = parse_xdg_user_dirs(home_dir);
-
-        let mut scan_dirs = vec![home_dir.to_path_buf()];
-
-        // Also add custom directories that are outside of $HOME
-        for dir in deep_dirs {
-            if !dir.starts_with(home_dir) && dir.exists() && !scan_dirs.contains(&dir) {
-                scan_dirs.push(dir);
+        let mut scan_dirs = Vec::new();
+        for path_str in &config.search_paths {
+            let path = PathBuf::from(path_str);
+            if path.exists() {
+                scan_dirs.push(path);
             }
+        }
+
+        // If no valid scan dirs configured, fall back to home dir
+        if scan_dirs.is_empty() {
+            scan_dirs.push(home_dir.to_path_buf());
         }
 
         // Start transaction for lightning fast batched inserts
@@ -116,10 +106,8 @@ impl Indexer {
             };
 
             for dir in scan_dirs {
-                let max_depth = if &dir == home_dir { 7 } else { 6 };
-
                 for entry in WalkDir::new(&dir)
-                    .max_depth(max_depth)
+                    .max_depth(config.max_depth)
                     .follow_links(false)
                     .into_iter()
                     .filter_entry(|e| {
@@ -127,7 +115,7 @@ impl Indexer {
                         if file_name.starts_with('.') {
                             return false;
                         }
-                        !EXCLUDED_DIRS.contains(&file_name.as_ref())
+                        !config.excluded_dirs.iter().any(|d| d == file_name.as_ref())
                     })
                 {
                     if let Ok(entry) = entry {
@@ -136,7 +124,7 @@ impl Indexer {
                             let name = path.file_name().unwrap_or_default().to_string_lossy();
                             let ext = path.extension().unwrap_or_default().to_string_lossy();
 
-                            if EXCLUDED_EXTENSIONS.contains(&ext.as_ref()) {
+                            if config.excluded_extensions.iter().any(|ex| ex == ext.as_ref()) {
                                 continue;
                             }
 
@@ -405,6 +393,7 @@ fn is_subsequence(needle: &str, haystack: &str) -> bool {
 }
 
 /// Parse ~/.config/user-dirs.dirs to get the user's configured XDG directories.
+#[allow(dead_code)]
 fn parse_xdg_user_dirs(home: &std::path::Path) -> Vec<std::path::PathBuf> {
     let xdg_file = home.join(".config/user-dirs.dirs");
     let mut dirs = Vec::new();

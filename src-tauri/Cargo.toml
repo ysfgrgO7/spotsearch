@@ -28,9 +28,12 @@ directories = "6.0.0"
 toml = "1.1.2"
 freedesktop-desktop-entry = "0.8.1"
 libc = "0.2.186"
-tauri-plugin-global-shortcut = "2.3.1"
+
 tauri-plugin-cli = "2.4.1"
 tauri-plugin-single-instance = "2"
 walkdir = "2.5.0"
 base64 = "0.22"
+gtk = "0.18"
+gdk = "0.18"
+gtk-layer-shell = { version = "0.8.2", features = ["v0_6"] }
 

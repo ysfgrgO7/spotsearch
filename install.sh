@@ -58,7 +58,9 @@ mkdir -p "$HOME/.local/share/applications"
 # Copy binary
 echo -e "${YELLOW}📦 Installing SpotSearch binary to ~/.local/bin/...${NC}"
 cp "$BINARY_SOURCE" "$HOME/.local/bin/spotsearch"
+sudo cp "$BINARY_SOURCE" "/usr/local/bin/spotsearch"
 chmod +x "$HOME/.local/bin/spotsearch"
+sudo chmod +x "/usr/local/bin/spotsearch"
 
 # Copy icons
 echo -e "${YELLOW}🎨 Installing application icons...${NC}"

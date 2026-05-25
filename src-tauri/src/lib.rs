@@ -3,6 +3,9 @@ use std::thread;
 use tauri::{command, AppHandle, Manager, State};
 mod apps;
 mod indexer;
+mod config;
+use config::AppConfig;
+use std::sync::Mutex;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct SearchResult {
@@ -90,6 +93,127 @@ fn open_result(app: AppHandle, result: SearchResult) {
     hide_window(app);
 }
 
+#[command]
+fn get_config(config_state: State<'_, Mutex<AppConfig>>) -> AppConfig {
+    config_state.lock().unwrap().clone()
+}
+
+#[command]
+fn save_config(
+    new_config: AppConfig,
+    config_state: State<'_, Mutex<AppConfig>>,
+    indexer: State<'_, indexer::Indexer>
+) -> Result<(), String> {
+    let mut config = config_state.lock().unwrap();
+
+    // 1. Save config to disk
+    new_config.save().map_err(|e| e.to_string())?;
+
+    // 2. Update memory state
+    *config = new_config.clone();
+
+    // 3. Trigger indexer rebuild in background
+    let indexer_clone = indexer.inner().clone();
+    let new_config_clone = new_config.clone();
+    thread::spawn(move || {
+        indexer_clone.build_index_with_config(&new_config_clone);
+    });
+
+    Ok(())
+}
+
+#[command]
+fn open_settings(app: AppHandle) {
+    if let Some(settings_window) = app.get_webview_window("settings") {
+        let _ = settings_window.show();
+        let _ = settings_window.set_focus();
+    } else {
+        let _settings_window = tauri::WebviewWindowBuilder::new(
+            &app,
+            "settings",
+            tauri::WebviewUrl::App("settings.html".into()),
+        )
+        .title("SpotSearch Settings")
+        .inner_size(680.0, 560.0)
+        .resizable(true)
+        .decorations(true)
+        .center()
+        .build();
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_wayland() -> bool {
+    std::env::var("WAYLAND_DISPLAY").is_ok()
+}
+
+#[cfg(target_os = "linux")]
+fn setup_wayland_grab(window: &tauri::WebviewWindow) {
+    use gtk_layer_shell::{Edge, Layer, KeyboardMode, LayerShell};
+
+    if let Ok(gtk_window) = window.gtk_window() {
+        // Initialize the window as a Wayland Layer Surface
+        gtk_window.init_layer_shell();
+        
+        // Place it in the overlay layer (above everything, including panels)
+        gtk_window.set_layer(Layer::Overlay);
+        
+        // Force exclusive keyboard grab (Compositor redirects all keys to our app)
+        gtk_window.set_keyboard_mode(KeyboardMode::Exclusive);
+        
+        // Disable anchoring so it floats centered
+        gtk_window.set_anchor(Edge::Top, false);
+        gtk_window.set_anchor(Edge::Bottom, false);
+        gtk_window.set_anchor(Edge::Left, false);
+        gtk_window.set_anchor(Edge::Right, false);
+        
+        println!("Wayland overlay & exclusive keyboard grab initialized successfully.");
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn grab_keyboard_x11(window: &tauri::Window) {
+    use gtk::prelude::*;
+
+    if let Ok(gtk_window) = window.gtk_window() {
+        if let Some(gdk_window) = gtk_window.window() {
+            let display = gdk_window.display();
+            if let Some(seat) = display.default_seat() {
+                // Grab the entire keyboard exclusively
+                let grab_status = seat.grab(
+                    &gdk_window,
+                    gdk::SeatCapabilities::KEYBOARD,
+                    true,
+                    None,
+                    None,
+                    None,
+                );
+                
+                if grab_status == gdk::GrabStatus::Success {
+                    println!("X11 keyboard grab successfully established.");
+                } else {
+                    eprintln!("Failed to establish X11 keyboard grab: {:?}", grab_status);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn ungrab_keyboard_x11(window: &tauri::Window) {
+    use gtk::prelude::*;
+
+    if let Ok(gtk_window) = window.gtk_window() {
+        if let Some(gdk_window) = gtk_window.window() {
+            let display = gdk_window.display();
+            if let Some(seat) = display.default_seat() {
+                seat.ungrab();
+                println!("X11 keyboard grab released.");
+            }
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -111,34 +235,41 @@ pub fn run() {
                 }
             }
         }))
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                        if let Some(window) = app.get_webview_window("main") {
-                            if window.is_visible().unwrap_or(false) {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.set_focus();
-                            }
-                        }
-                    }
-                })
-                .build(),
-        )
-        .invoke_handler(tauri::generate_handler![search, hide_window, open_result])
+
+        .invoke_handler(tauri::generate_handler![
+            search,
+            hide_window,
+            open_result,
+            get_config,
+            save_config,
+            open_settings
+        ])
         .setup(|app| {
+            // Load AppConfig and manage state
+            let config = AppConfig::load();
+            app.manage(Mutex::new(config.clone()));
+
             // Setup indexer state
             let indexer_instance = indexer::Indexer::new().expect("Failed to init indexer");
             let indexer_clone = indexer_instance.clone();
 
             // Build index on a background thread — does NOT block the UI
+            let config_for_index = config.clone();
             thread::spawn(move || {
-                indexer_clone.build_index();
+                indexer_clone.build_index_with_config(&config_for_index);
             });
 
             app.manage(indexer_instance);
+
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_always_on_top(true);
+                #[cfg(target_os = "linux")]
+                {
+                    if is_wayland() {
+                        setup_wayland_grab(&window);
+                    }
+                }
+            }
 
             // Setup IPC socket listener for super-fast toggling
             let app_handle = app.handle().clone();
@@ -200,15 +331,7 @@ pub fn run() {
                     .output();
             }
 
-            // Register hotkey
-            use std::str::FromStr;
-            use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-            if let Ok(shortcut) = tauri_plugin_global_shortcut::Shortcut::from_str("Super+Space") {
-                if !app.global_shortcut().is_registered(shortcut.clone()) {
-                    let _ = app.global_shortcut().register(shortcut);
-                }
-            }
 
             // Check for --toggle flag
             use tauri_plugin_cli::CliExt;
@@ -280,6 +403,38 @@ pub fn run() {
             tauri::WindowEvent::CloseRequested { api, .. } => {
                 let _ = window.hide();
                 api.prevent_close();
+            }
+            tauri::WindowEvent::Focused(focused) => {
+                if window.label() == "main" {
+                    #[cfg(target_os = "linux")]
+                    {
+                        if !is_wayland() {
+                            if *focused {
+                                grab_keyboard_x11(window);
+                            } else {
+                                ungrab_keyboard_x11(window);
+                            }
+                        }
+                    }
+
+                    if !focused {
+                        let hide_on_blur = {
+                            let config_state = window.state::<Mutex<AppConfig>>();
+                            let config = config_state.lock().unwrap();
+                            config.hide_on_blur
+                        };
+                        if hide_on_blur {
+                            let _ = window.hide();
+                        } else {
+                            #[cfg(target_os = "linux")]
+                            {
+                                if !is_wayland() {
+                                    let _ = window.set_focus();
+                                }
+                            }
+                        }
+                    }
+                }
             }
             _ => {}
         })
