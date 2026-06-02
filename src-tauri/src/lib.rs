@@ -21,6 +21,8 @@ pub struct SearchResult {
     pub url: Option<String>,
     #[serde(default)]
     pub is_terminal: Option<bool>,
+    #[serde(default)]
+    pub is_settings: Option<bool>,
 }
 
 fn is_acronym_match(query: &str, name: &str) -> bool {
@@ -85,6 +87,7 @@ fn search(
                 is_websearch: Some(false),
                 url: None,
                 is_terminal: Some(app.terminal),
+                is_settings: Some(false),
             });
         }
     }
@@ -99,6 +102,7 @@ fn search(
         fr.subtitle = fr.path.clone();
         fr.is_websearch = Some(false);
         fr.is_terminal = Some(false);
+        fr.is_settings = Some(false);
     }
     file_results.truncate(30);
 
@@ -128,7 +132,33 @@ fn search(
             is_websearch: Some(true),
             url: Some(web_url),
             is_terminal: Some(false),
+            is_settings: Some(false),
         });
+    }
+
+    // --- Settings shortcut result ---
+    if !trimmed.is_empty() {
+        let trimmed_lower = trimmed.to_lowercase();
+        if "settings".contains(&trimmed_lower)
+            || "preferences".contains(&trimmed_lower)
+            || "configuration".contains(&trimmed_lower)
+            || "spotsearch".contains(&trimmed_lower)
+            || "setup".contains(&trimmed_lower)
+            || "config".contains(&trimmed_lower)
+        {
+            results.push(SearchResult {
+                name: "SpotSearch Settings".to_string(),
+                path: None,
+                icon_data: None,
+                is_app: false,
+                exec: None,
+                subtitle: Some("Configure search paths, exclusions, themes, browser, and terminal".to_string()),
+                is_websearch: Some(false),
+                url: None,
+                is_terminal: Some(false),
+                is_settings: Some(true),
+            });
+        }
     }
 
     results
@@ -266,7 +296,9 @@ fn open_result(
     config_state: State<'_, Mutex<AppConfig>>,
 ) {
     let config = config_state.lock().unwrap().clone();
-    if result.is_websearch.unwrap_or(false) {
+    if result.is_settings.unwrap_or(false) {
+        open_settings(app.clone());
+    } else if result.is_websearch.unwrap_or(false) {
         if let Some(url) = result.url {
             let _ = open_url(&url, &config.web_browser);
         }

@@ -213,6 +213,7 @@ impl Indexer {
                                     is_websearch: Some(false),
                                     url: None,
                                     is_terminal: Some(false),
+                                    is_settings: Some(false),
                                 },
                                 score,
                             ));
@@ -255,6 +256,7 @@ impl Indexer {
                                         is_websearch: Some(false),
                                         url: None,
                                         is_terminal: Some(false),
+                                        is_settings: Some(false),
                                     },
                                     score,
                                 ));

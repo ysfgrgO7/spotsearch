@@ -274,6 +274,7 @@ const FILE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18
 const APP_ICON_FALLBACK = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`;
 const CALC_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>`;
 const WEB_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>`;
+const SETTINGS_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>`;
 
 function renderResults() {
   resultsEl.innerHTML = "";
@@ -291,7 +292,8 @@ function renderResults() {
   const calcs = currentResults.filter(r => r.is_calc);
   const apps = currentResults.filter(r => r.is_app);
   const websearches = currentResults.filter(r => r.is_websearch);
-  const files = currentResults.filter(r => !r.is_app && !r.is_calc && !r.is_websearch);
+  const settings = currentResults.filter(r => r.is_settings);
+  const files = currentResults.filter(r => !r.is_app && !r.is_calc && !r.is_websearch && !r.is_settings);
 
   let flatIndex = 0;
 
@@ -316,6 +318,19 @@ function renderResults() {
     resultsEl.appendChild(header);
 
     apps.forEach((result) => {
+      const itemIndex = flatIndex++;
+      resultsEl.appendChild(createResultItem(result, itemIndex));
+    });
+  }
+
+  // --- Settings section ---
+  if (settings.length > 0) {
+    const header = document.createElement("div");
+    header.className = "section-header";
+    header.textContent = "Settings";
+    resultsEl.appendChild(header);
+
+    settings.forEach((result) => {
       const itemIndex = flatIndex++;
       resultsEl.appendChild(createResultItem(result, itemIndex));
     });
@@ -364,6 +379,8 @@ function createResultItem(result, idx) {
     iconWrap.innerHTML = CALC_ICON;
   } else if (result.is_websearch) {
     iconWrap.innerHTML = WEB_ICON;
+  } else if (result.is_settings) {
+    iconWrap.innerHTML = SETTINGS_ICON;
   } else if (result.is_app && result.icon_data) {
     const img = document.createElement("img");
     img.src = result.icon_data;
