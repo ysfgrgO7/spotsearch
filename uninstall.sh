@@ -17,12 +17,23 @@ if pgrep -x "spotsearch" &> /dev/null; then
     pkill -x "spotsearch" || true
 fi
 
-# Remove binary
+# Remove binary from local and system bin
 if [ -f "$HOME/.local/bin/spotsearch" ]; then
     echo -e "${YELLOW}🗑️  Removing binary from ~/.local/bin/...${NC}"
     rm "$HOME/.local/bin/spotsearch"
 else
     echo -e "• Binary ~/.local/bin/spotsearch already removed."
+fi
+
+if [ -f "/usr/local/bin/spotsearch" ]; then
+    echo -e "${YELLOW}🗑️  Removing binary from /usr/local/bin/... (Requires sudo)${NC}"
+    sudo rm -f "/usr/local/bin/spotsearch" || true
+fi
+
+# Remove version and repo path metadata
+if [ -d "$HOME/.local/share/spotsearch" ]; then
+    echo -e "${YELLOW}🗑️  Removing application metadata directory...${NC}"
+    rm -rf "$HOME/.local/share/spotsearch"
 fi
 
 # Remove icons

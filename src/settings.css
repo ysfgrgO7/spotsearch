@@ -593,3 +593,57 @@ button:active {
   color: var(--text-primary);
   cursor: pointer;
 }
+
+/* Update tab styles */
+.update-card {
+  background-color: var(--bg-dark);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  margin-top: 8px;
+}
+
+.update-status-row {
+  display: flex;
+  gap: 32px;
+}
+
+.version-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.version-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.version-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.update-message {
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  background-color: rgba(255, 255, 255, 0.02);
+  border: 1px dashed var(--border-color);
+  padding: 16px;
+  border-radius: 8px;
+  font-family: inherit;
+}
+
+.update-actions {
+  display: flex;
+  gap: 12px;
+}

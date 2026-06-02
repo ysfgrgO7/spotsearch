@@ -40,12 +40,31 @@ const textPicker = document.getElementById("color-text");
 const dimPicker = document.getElementById("color-dim");
 const accentPicker = document.getElementById("color-accent");
 
+// Updates UI Elements
+const currentVersionDisplay = document.getElementById("current-version-display");
+const latestVersionDisplay = document.getElementById("latest-version-display");
+const updateMessage = document.getElementById("update-message");
+const checkUpdatesBtn = document.getElementById("check-updates-btn");
+const applyUpdateBtn = document.getElementById("apply-update-btn");
+
 // DOM Initialized
 window.addEventListener("DOMContentLoaded", async () => {
   setupTabs();
   setupEventListeners();
   await loadConfig();
+  await checkCurrentVersion();
 });
+
+async function checkCurrentVersion() {
+  try {
+    const updateInfo = await invoke("check_for_updates");
+    if (updateInfo) {
+      currentVersionDisplay.textContent = updateInfo.current_version;
+    }
+  } catch (error) {
+    console.error("Failed to load version info:", error);
+  }
+}
 
 // Sidebar Tab Setup
 function setupTabs() {
@@ -327,5 +346,52 @@ function setupEventListeners() {
   cancelBtn.addEventListener("click", () => {
     const { getCurrentWindow } = window.__TAURI__.window;
     getCurrentWindow().close();
+  });
+
+  // Check for updates button
+  checkUpdatesBtn.addEventListener("click", async () => {
+    checkUpdatesBtn.disabled = true;
+    checkUpdatesBtn.textContent = "Checking...";
+    updateMessage.textContent = "Connecting to local repository to inspect updates...";
+    updateMessage.style.color = "var(--text-dim)";
+    
+    try {
+      const updateInfo = await invoke("check_for_updates");
+      latestVersionDisplay.textContent = updateInfo.latest_version;
+      
+      if (updateInfo.has_update) {
+        updateMessage.textContent = `A newer version (v${updateInfo.latest_version}) is available in your local repository! Click 'Install Update Now' to rebuild and upgrade automatically.`;
+        updateMessage.style.color = "#c084fc"; // nice accent color
+        applyUpdateBtn.style.display = "block";
+      } else {
+        updateMessage.textContent = `SpotSearch is up-to-date (v${updateInfo.current_version}). No updates available.`;
+        updateMessage.style.color = "#10b981"; // success green
+        applyUpdateBtn.style.display = "none";
+      }
+    } catch (error) {
+      updateMessage.textContent = `Update check failed: ${error}. Make sure the repository exists and install.sh was run first.`;
+      updateMessage.style.color = "#ef4444"; // error red
+      applyUpdateBtn.style.display = "none";
+    } finally {
+      checkUpdatesBtn.disabled = false;
+      checkUpdatesBtn.textContent = "Check for Updates";
+    }
+  });
+
+  // Apply update button
+  applyUpdateBtn.addEventListener("click", async () => {
+    applyUpdateBtn.disabled = true;
+    applyUpdateBtn.textContent = "Installing Update...";
+    updateMessage.textContent = "Rebuilding SpotSearch from local repository. This window will automatically restart in a few moments...";
+    updateMessage.style.color = "var(--text-dim)";
+    
+    try {
+      await invoke("apply_update");
+    } catch (error) {
+      updateMessage.textContent = `Failed to apply update: ${error}`;
+      updateMessage.style.color = "#ef4444";
+      applyUpdateBtn.disabled = false;
+      applyUpdateBtn.textContent = "Install Update Now";
+    }
   });
 }

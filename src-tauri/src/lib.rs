@@ -142,6 +142,156 @@ fn open_settings(app: AppHandle) {
     }
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct UpdateInfo {
+    pub has_update: bool,
+    pub current_version: String,
+    pub latest_version: String,
+    pub repo_path: Option<String>,
+}
+
+#[command]
+fn check_for_updates() -> Result<UpdateInfo, String> {
+    use std::fs;
+    use std::process::Command;
+    let base_dirs = directories::BaseDirs::new().ok_or_else(|| "Could not determine home directory".to_string())?;
+    let share_dir = base_dirs.data_local_dir().join("spotsearch");
+    let version_file = share_dir.join("version");
+    let repo_path_file = share_dir.join("repo_path");
+
+    let current_version = if version_file.exists() {
+        fs::read_to_string(&version_file)
+            .map(|s| s.trim().to_string())
+            .unwrap_or_else(|_| "0.1.0".to_string())
+    } else {
+        "0.1.0".to_string()
+    };
+
+    let repo_path = if repo_path_file.exists() {
+        fs::read_to_string(&repo_path_file)
+            .map(|s| s.trim().to_string())
+            .ok()
+    } else {
+        None
+    };
+
+    let mut latest_version = current_version.clone();
+    let mut has_update = false;
+
+    if let Some(ref path) = repo_path {
+        // Try to fetch latest changes from git remote to know if there's any update
+        let _ = Command::new("git")
+            .arg("fetch")
+            .current_dir(path)
+            .status();
+
+        // Try origin/main package.json first, then origin/master as fallback
+        let mut got_remote_version = false;
+        for branch in &["origin/main:package.json", "origin/master:package.json"] {
+            if let Ok(output) = Command::new("git")
+                .args(["show", branch])
+                .current_dir(path)
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(content) = String::from_utf8(output.stdout) {
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Some(ver) = json.get("version").and_then(|v| v.as_str()) {
+                                latest_version = ver.to_string();
+                                got_remote_version = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we couldn't get it from the remote (e.g. offline), fall back to the local repository package.json
+        if !got_remote_version {
+            let package_json_path = std::path::Path::new(path).join("package.json");
+            if package_json_path.exists() {
+                if let Ok(content) = fs::read_to_string(&package_json_path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if let Some(ver) = json.get("version").and_then(|v| v.as_str()) {
+                            latest_version = ver.to_string();
+                        }
+                    }
+                }
+            }
+        }
+
+        if latest_version != current_version {
+            has_update = true;
+        }
+    }
+
+    Ok(UpdateInfo {
+        has_update,
+        current_version,
+        latest_version,
+        repo_path,
+    })
+}
+
+#[command]
+fn apply_update(_app: AppHandle) -> Result<(), String> {
+    use std::fs;
+    use std::process::Command;
+
+    let base_dirs = directories::BaseDirs::new().ok_or_else(|| "Could not determine home directory".to_string())?;
+    let share_dir = base_dirs.data_local_dir().join("spotsearch");
+    let repo_path_file = share_dir.join("repo_path");
+
+    if !repo_path_file.exists() {
+        return Err("Source repository path not found. Cannot auto-update.".to_string());
+    }
+
+    let repo_path = fs::read_to_string(&repo_path_file)
+        .map(|s| s.trim().to_string())
+        .map_err(|e| format!("Failed to read repo path: {}", e))?;
+
+    let install_script = std::path::Path::new(&repo_path).join("install.sh");
+    if !install_script.exists() {
+        return Err(format!("Installer script not found at {:?}", install_script));
+    }
+
+    let repo_path_clone = repo_path.clone();
+    std::thread::spawn(move || {
+        // Try to pull the latest changes
+        let _ = Command::new("git")
+            .arg("pull")
+            .current_dir(&repo_path_clone)
+            .status();
+
+        let status = Command::new("bash")
+            .arg("install.sh")
+            .arg("--auto-update")
+            .current_dir(&repo_path_clone)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                println!("Auto-update successfully built and installed!");
+                
+                if let Some(base_dirs) = directories::BaseDirs::new() {
+                    let bin_path = base_dirs.home_dir().join(".local/bin/spotsearch");
+                    if bin_path.exists() {
+                        let _ = Command::new(bin_path).spawn();
+                    }
+                }
+                
+                std::process::exit(0);
+            }
+            _ => {
+                eprintln!("Auto-update failed to build or install.");
+            }
+        }
+    });
+
+    Ok(())
+}
+
 #[cfg(target_os = "linux")]
 fn is_wayland() -> bool {
     std::env::var("WAYLAND_DISPLAY").is_ok()
@@ -150,6 +300,11 @@ fn is_wayland() -> bool {
 #[cfg(target_os = "linux")]
 fn setup_wayland_grab(window: &tauri::WebviewWindow) {
     use gtk_layer_shell::{Edge, Layer, KeyboardMode, LayerShell};
+
+    if !gtk_layer_shell::is_supported() {
+        println!("Wayland compositor does not support Layer Shell protocol. Falling back to normal window.");
+        return;
+    }
 
     if let Ok(gtk_window) = window.gtk_window() {
         // Initialize the window as a Wayland Layer Surface
@@ -242,7 +397,9 @@ pub fn run() {
             open_result,
             get_config,
             save_config,
-            open_settings
+            open_settings,
+            check_for_updates,
+            apply_update
         ])
         .setup(|app| {
             // Load AppConfig and manage state
