@@ -21,6 +21,10 @@ const tabContents = document.querySelectorAll(".tab-content");
 const depthInput = document.getElementById("depth-input");
 const depthVal = document.getElementById("depth-val");
 const hideOnBlurInput = document.getElementById("hide-on-blur-input");
+const webBrowserInput = document.getElementById("web-browser-input");
+const webSearchTemplateInput = document.getElementById("web-search-template-input");
+const terminalInput = document.getElementById("terminal-input");
+const terminalAppsInput = document.getElementById("terminal-apps-input");
 const pathsList = document.getElementById("paths-list");
 const newPathInput = document.getElementById("new-path-input");
 const addPathBtn = document.getElementById("add-path-btn");
@@ -89,6 +93,10 @@ async function loadConfig() {
     depthInput.value = currentConfig.max_depth;
     depthVal.textContent = currentConfig.max_depth;
     hideOnBlurInput.checked = currentConfig.hide_on_blur !== false;
+    webBrowserInput.value = currentConfig.web_browser || "default";
+    webSearchTemplateInput.value = currentConfig.web_search_template || "https://www.google.com/search?q={query}";
+    terminalInput.value = currentConfig.terminal || "default";
+    terminalAppsInput.value = (currentConfig.terminal_apps || []).join(", ");
 
     // Fill Appearance inputs
     if (currentConfig.theme) {
@@ -234,6 +242,28 @@ function setupEventListeners() {
   // Hide on Blur checkbox listener
   hideOnBlurInput.addEventListener("change", (e) => {
     currentConfig.hide_on_blur = e.target.checked;
+  });
+
+  // Web Browser input change listener
+  webBrowserInput.addEventListener("input", (e) => {
+    currentConfig.web_browser = e.target.value.trim();
+  });
+
+  // Web Search Template input change listener
+  webSearchTemplateInput.addEventListener("input", (e) => {
+    currentConfig.web_search_template = e.target.value.trim();
+  });
+
+  // Terminal input change listener
+  terminalInput.addEventListener("input", (e) => {
+    currentConfig.terminal = e.target.value.trim();
+  });
+
+  // Terminal Apps input change listener
+  terminalAppsInput.addEventListener("input", (e) => {
+    currentConfig.terminal_apps = e.target.value.split(",")
+      .map(app => app.trim())
+      .filter(app => app.length > 0);
   });
 
   // Bind Color pickers with Hex label updating and live-preview rendering

@@ -60,6 +60,30 @@
           </div>
           <span class="input-hint">When enabled, clicking outside the window or focusing another application will automatically close SpotSearch. When disabled, the window stays open and retains focus until ESC is pressed or an item is launched.</span>
         </div>
+
+        <div class="form-group" style="margin-top: 24px;">
+          <label for="web-browser-input">Web Browser Command</label>
+          <input type="text" id="web-browser-input" placeholder="e.g. default, firefox, google-chrome" spellcheck="false">
+          <span class="input-hint">Command to launch your web browser (Use 'default' to let the system decide using xdg-open).</span>
+        </div>
+
+        <div class="form-group" style="margin-top: 24px;">
+          <label for="web-search-template-input">Search Engine URL Template</label>
+          <input type="text" id="web-search-template-input" placeholder="e.g. https://www.google.com/search?q={query}" spellcheck="false">
+          <span class="input-hint">Template for web searches. '{query}' will be replaced by your search term.</span>
+        </div>
+
+        <div class="form-group" style="margin-top: 24px;">
+          <label for="terminal-input">Terminal Emulator Command</label>
+          <input type="text" id="terminal-input" placeholder="e.g. default, kitty, alacritty, gnome-terminal" spellcheck="false">
+          <span class="input-hint">Terminal command to run command-line apps. Leave as 'default' for auto-detection.</span>
+        </div>
+
+        <div class="form-group" style="margin-top: 24px;">
+          <label for="terminal-apps-input">Terminal Applications</label>
+          <input type="text" id="terminal-apps-input" placeholder="e.g. vim, neovim, btop, htop" spellcheck="false">
+          <span class="input-hint">Comma-separated list of executable names that should be launched in the terminal emulator instead of directly.</span>
+        </div>
       </div>
 
       <!-- Appearance Tab -->

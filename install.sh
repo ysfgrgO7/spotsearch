@@ -247,6 +247,7 @@ mkdir -p "$HOME/.local/share/spotsearch"
 
 # Copy binary to local user directory (doesn't require sudo)
 echo -e "${YELLOW}📦 Installing SpotSearch binary to ~/.local/bin/...${NC}"
+rm -f "$HOME/.local/bin/spotsearch"
 cp "$BINARY_SOURCE" "$HOME/.local/bin/spotsearch"
 chmod +x "$HOME/.local/bin/spotsearch"
 
@@ -256,6 +257,7 @@ if [ "$AUTO_UPDATE" = "true" ]; then
 else
     if confirm_action "Would you like to install the binary system-wide to /usr/local/bin? (Requires sudo)" "n"; then
         echo -e "${YELLOW}📦 Copying binary to /usr/local/bin/...${NC}"
+        sudo rm -f "/usr/local/bin/spotsearch"
         sudo cp "$BINARY_SOURCE" "/usr/local/bin/spotsearch"
         sudo chmod +x "/usr/local/bin/spotsearch"
     else

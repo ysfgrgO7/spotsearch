@@ -29,6 +29,31 @@ fn default_hide_on_blur() -> bool {
     true
 }
 
+fn default_web_browser() -> String {
+    "default".to_string()
+}
+
+fn default_web_search_template() -> String {
+    "https://www.google.com/search?q={query}".to_string()
+}
+
+fn default_terminal() -> String {
+    "default".to_string()
+}
+
+fn default_terminal_apps() -> Vec<String> {
+    vec![
+        "vim".to_string(),
+        "neovim".to_string(),
+        "nvim".to_string(),
+        "btop".to_string(),
+        "htop".to_string(),
+        "nano".to_string(),
+        "less".to_string(),
+        "ranger".to_string(),
+    ]
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AppConfig {
     pub theme: ThemeColors,
@@ -38,6 +63,14 @@ pub struct AppConfig {
     pub max_depth: usize,
     #[serde(default = "default_hide_on_blur")]
     pub hide_on_blur: bool,
+    #[serde(default = "default_web_browser")]
+    pub web_browser: String,
+    #[serde(default = "default_web_search_template")]
+    pub web_search_template: String,
+    #[serde(default = "default_terminal")]
+    pub terminal: String,
+    #[serde(default = "default_terminal_apps")]
+    pub terminal_apps: Vec<String>,
 }
 
 impl Default for AppConfig {
@@ -99,6 +132,10 @@ impl Default for AppConfig {
             .collect(),
             max_depth: 7,
             hide_on_blur: true,
+            web_browser: default_web_browser(),
+            web_search_template: default_web_search_template(),
+            terminal: default_terminal(),
+            terminal_apps: default_terminal_apps(),
         }
     }
 }

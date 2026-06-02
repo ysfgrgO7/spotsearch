@@ -210,6 +210,9 @@ impl Indexer {
                                     is_app: false,
                                     exec: None,
                                     subtitle: None,
+                                    is_websearch: Some(false),
+                                    url: None,
+                                    is_terminal: Some(false),
                                 },
                                 score,
                             ));
@@ -249,6 +252,9 @@ impl Indexer {
                                         is_app: false,
                                         exec: None,
                                         subtitle: None,
+                                        is_websearch: Some(false),
+                                        url: None,
+                                        is_terminal: Some(false),
                                     },
                                     score,
                                 ));

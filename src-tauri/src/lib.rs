@@ -15,6 +15,12 @@ pub struct SearchResult {
     pub is_app: bool,
     pub exec: Option<String>,
     pub subtitle: Option<String>,
+    #[serde(default)]
+    pub is_websearch: Option<bool>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub is_terminal: Option<bool>,
 }
 
 fn is_acronym_match(query: &str, name: &str) -> bool {
@@ -36,7 +42,12 @@ fn is_acronym_match(query: &str, name: &str) -> bool {
 }
 
 #[command]
-fn search(query: &str, indexer: State<'_, indexer::Indexer>) -> Vec<SearchResult> {
+fn search(
+    query: &str,
+    indexer: State<'_, indexer::Indexer>,
+    config_state: State<'_, Mutex<AppConfig>>,
+) -> Vec<SearchResult> {
+    let config = config_state.lock().unwrap().clone();
     let lower_query = query.to_lowercase();
     let terms: Vec<&str> = lower_query.split_whitespace().collect();
 
@@ -71,6 +82,9 @@ fn search(query: &str, indexer: State<'_, indexer::Indexer>) -> Vec<SearchResult
                 is_app: true,
                 exec: Some(app.exec.clone()),
                 subtitle: app.generic_name.clone().or(app.categories.clone()),
+                is_websearch: Some(false),
+                url: None,
+                is_terminal: Some(app.terminal),
             });
         }
     }
@@ -83,12 +97,40 @@ fn search(query: &str, indexer: State<'_, indexer::Indexer>) -> Vec<SearchResult
     // Set subtitle to the file path for files
     for fr in &mut file_results {
         fr.subtitle = fr.path.clone();
+        fr.is_websearch = Some(false);
+        fr.is_terminal = Some(false);
     }
     file_results.truncate(30);
 
     // Combine: apps first, then files
     let mut results = app_results;
     results.append(&mut file_results);
+
+    // --- Web Search result ---
+    let trimmed = query.trim();
+    if !trimmed.is_empty() {
+        let encoded = percent_encode(trimmed);
+        let web_url = config.web_search_template.replace("{query}", &encoded);
+        
+        let browser_display = if config.web_browser == "default" || config.web_browser.trim().is_empty() {
+            "default browser".to_string()
+        } else {
+            config.web_browser.clone()
+        };
+
+        results.push(SearchResult {
+            name: format!("Search the web for '{}'", trimmed),
+            path: None,
+            icon_data: None,
+            is_app: false,
+            exec: None,
+            subtitle: Some(format!("Opens in {}", browser_display)),
+            is_websearch: Some(true),
+            url: Some(web_url),
+            is_terminal: Some(false),
+        });
+    }
+
     results
 }
 
@@ -99,15 +141,151 @@ fn hide_window(app: AppHandle) {
     }
 }
 
+fn percent_encode(input: &str) -> String {
+    let mut encoded = String::new();
+    for byte in input.as_bytes() {
+        match *byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(*byte as char);
+            }
+            b' ' => {
+                encoded.push('+');
+            }
+            _ => {
+                encoded.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    encoded
+}
+
+fn open_url(url: &str, browser: &str) -> Result<(), std::io::Error> {
+    if browser == "default" || browser.trim().is_empty() {
+        Command::new("xdg-open").arg(url).spawn()?;
+    } else {
+        let parts: Vec<&str> = browser.split_whitespace().collect();
+        if !parts.is_empty() {
+            let mut cmd = Command::new(parts[0]);
+            cmd.args(&parts[1..]);
+            cmd.arg(url);
+            cmd.spawn()?;
+        }
+    }
+    Ok(())
+}
+
+fn which_cmd(cmd: &str) -> bool {
+    Command::new("which")
+        .arg(cmd)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn detect_terminal_emulator() -> Option<String> {
+    let common_terminals = vec![
+        "alacritty",
+        "kitty",
+        "wezterm",
+        "konsole",
+        "gnome-terminal",
+        "xfce4-terminal",
+        "xterm",
+        "foot",
+        "urxvt",
+        "termite",
+    ];
+
+    for term in common_terminals {
+        if which_cmd(term) {
+            return Some(term.to_string());
+        }
+    }
+
+    if which_cmd("x-terminal-emulator") {
+        return Some("x-terminal-emulator".to_string());
+    }
+
+    None
+}
+
+fn run_in_terminal(terminal: &str, exec: &str) -> Result<(), std::io::Error> {
+    let term_bin = if terminal == "default" || terminal.trim().is_empty() {
+        detect_terminal_emulator().unwrap_or_else(|| "x-terminal-emulator".to_string())
+    } else {
+        terminal.to_string()
+    };
+
+    let term_lower = term_bin.to_lowercase();
+    let mut cmd = Command::new(&term_bin);
+
+    if term_lower.contains("gnome-terminal") {
+        cmd.arg("--");
+        let parts: Vec<&str> = exec.split_whitespace().collect();
+        cmd.args(parts);
+    } else if term_lower.contains("wezterm") {
+        cmd.args(["start", "--"]);
+        let parts: Vec<&str> = exec.split_whitespace().collect();
+        cmd.args(parts);
+    } else if term_lower.contains("kitty") {
+        cmd.arg("--");
+        let parts: Vec<&str> = exec.split_whitespace().collect();
+        cmd.args(parts);
+    } else {
+        cmd.arg("-e");
+        let parts: Vec<&str> = exec.split_whitespace().collect();
+        cmd.args(parts);
+    }
+
+    cmd.spawn()?;
+    Ok(())
+}
+
+fn should_run_in_terminal(exec: &str, is_desktop_terminal: bool, terminal_apps: &[String]) -> bool {
+    if is_desktop_terminal {
+        return true;
+    }
+    let cmd = exec.split_whitespace().next().unwrap_or("").trim();
+    let cmd_name = std::path::Path::new(cmd)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| cmd.to_string());
+
+    terminal_apps.iter().any(|app| {
+        let app_trimmed = app.trim().to_lowercase();
+        cmd_name.to_lowercase() == app_trimmed || cmd.to_lowercase() == app_trimmed
+    })
+}
+
 #[command]
-fn open_result(app: AppHandle, result: SearchResult) {
-    if result.is_app {
+fn open_result(
+    app: AppHandle,
+    result: SearchResult,
+    config_state: State<'_, Mutex<AppConfig>>,
+) {
+    let config = config_state.lock().unwrap().clone();
+    if result.is_websearch.unwrap_or(false) {
+        if let Some(url) = result.url {
+            let _ = open_url(&url, &config.web_browser);
+        }
+    } else if result.is_app {
         if let Some(exec) = result.exec {
-            let parts: Vec<&str> = exec.split_whitespace().collect();
-            if !parts.is_empty() {
-                let mut cmd = Command::new(parts[0]);
-                cmd.args(&parts[1..]);
-                let _ = cmd.spawn();
+            let is_term = should_run_in_terminal(
+                &exec,
+                result.is_terminal.unwrap_or(false),
+                &config.terminal_apps,
+            );
+            if is_term {
+                let _ = run_in_terminal(&config.terminal, &exec);
+            } else {
+                let parts: Vec<&str> = exec.split_whitespace().collect();
+                if !parts.is_empty() {
+                    let mut cmd = Command::new(parts[0]);
+                    cmd.args(&parts[1..]);
+                    let _ = cmd.spawn();
+                }
             }
         }
     } else {

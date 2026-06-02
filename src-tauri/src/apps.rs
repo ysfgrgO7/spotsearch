@@ -14,6 +14,7 @@ pub struct AppResult {
     pub categories: Option<String>,
     pub keywords: Option<String>,
     pub generic_name: Option<String>,
+    pub terminal: bool,
 }
 
 struct CacheData {
@@ -223,6 +224,7 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
     let mut categories = None;
     let mut keywords = None;
     let mut generic_name = None;
+    let mut terminal = false;
 
     let mut in_desktop_entry = false;
     for line in content.lines() {
@@ -255,6 +257,9 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
             hidden = true;
         } else if line.starts_with("NoDisplay=true") {
             nodisplay = true;
+        } else if line.starts_with("Terminal=") {
+            let val = line["Terminal=".len()..].trim().to_lowercase();
+            terminal = val == "true" || val == "1";
         } else if line.starts_with("Categories=") && categories.is_none() {
             let raw = line["Categories=".len()..].to_string();
             let cat = raw
@@ -302,6 +307,7 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
         categories,
         keywords,
         generic_name,
+        terminal,
     })
 }
 
