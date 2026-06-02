@@ -1,18 +1,16 @@
+use crate::SearchResult;
 use directories::BaseDirs;
 use rusqlite::{params, Connection, Result};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
-use crate::SearchResult;
 
 #[derive(Clone)]
 pub struct Indexer {
     db_path: PathBuf,
     read_conn: Arc<Mutex<Connection>>,
 }
-
-
 
 impl Indexer {
     pub fn new() -> Result<Self> {
@@ -97,7 +95,9 @@ impl Indexer {
 
         let mut count: usize = 0;
         {
-            let mut stmt = match tx.prepare("INSERT INTO files (name, path, extension, modified) VALUES (?1, ?2, ?3, ?4)") {
+            let mut stmt = match tx.prepare(
+                "INSERT INTO files (name, path, extension, modified) VALUES (?1, ?2, ?3, ?4)",
+            ) {
                 Ok(s) => s,
                 Err(e) => {
                     eprintln!("[SpotSearch] Failed to prepare statement: {}", e);
@@ -124,7 +124,11 @@ impl Indexer {
                             let name = path.file_name().unwrap_or_default().to_string_lossy();
                             let ext = path.extension().unwrap_or_default().to_string_lossy();
 
-                            if config.excluded_extensions.iter().any(|ex| ex == ext.as_ref()) {
+                            if config
+                                .excluded_extensions
+                                .iter()
+                                .any(|ex| ex == ext.as_ref())
+                            {
                                 continue;
                             }
 
@@ -158,7 +162,11 @@ impl Indexer {
         // 1. Sanitize the query terms for FTS5
         let terms: Vec<String> = lower_query
             .split_whitespace()
-            .map(|s| s.chars().filter(|c| c.is_alphanumeric()).collect::<String>())
+            .map(|s| {
+                s.chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .collect::<String>()
+            })
             .filter(|s| !s.is_empty())
             .collect();
 
@@ -178,9 +186,9 @@ impl Indexer {
                 .join(" AND ");
 
             // Query FTS5 table - matching against the virtual table name searches both indexed columns: name and path
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT name, path, extension FROM files WHERE files MATCH ?1 LIMIT 300",
-            ) {
+            if let Ok(mut stmt) = conn
+                .prepare("SELECT name, path, extension FROM files WHERE files MATCH ?1 LIMIT 300")
+            {
                 let rows = stmt.query_map(params![fts_query], |row| {
                     let name: String = row.get(0)?;
                     let path: String = row.get(1)?;
@@ -279,7 +287,12 @@ fn fuzzy_score(query: &str, name: &str, path: &str, ext: &str) -> i32 {
         score += 5000;
     } else if let Some(idx) = name_lower.find(&query_lower) {
         // High bonus if substring starts at a word boundary
-        if idx == 0 || !name_lower.chars().nth(idx - 1).map_or(false, |c| c.is_alphanumeric()) {
+        if idx == 0
+            || !name_lower
+                .chars()
+                .nth(idx - 1)
+                .map_or(false, |c| c.is_alphanumeric())
+        {
             score += 3000;
         } else {
             score += 1500;
@@ -328,7 +341,10 @@ fn fuzzy_score(query: &str, name: &str, path: &str, ext: &str) -> i32 {
     if path_lower.contains("/projects/") || path_lower.contains("/src/") {
         score += 400;
     }
-    if path_lower.contains("/desktop/") || path_lower.contains("/documents/") || path_lower.contains("/downloads/") {
+    if path_lower.contains("/desktop/")
+        || path_lower.contains("/documents/")
+        || path_lower.contains("/downloads/")
+    {
         score += 250;
     }
 
@@ -416,7 +432,14 @@ fn parse_xdg_user_dirs(home: &std::path::Path) -> Vec<std::path::PathBuf> {
     }
 
     if dirs.is_empty() {
-        let defaults = ["Documents", "Downloads", "Desktop", "Pictures", "Videos", "Music"];
+        let defaults = [
+            "Documents",
+            "Downloads",
+            "Desktop",
+            "Pictures",
+            "Videos",
+            "Music",
+        ];
         for d in &defaults {
             dirs.push(home.join(d));
         }

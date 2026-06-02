@@ -1,6 +1,6 @@
+use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use directories::BaseDirs;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ThemeColors {
@@ -49,24 +49,50 @@ impl Default for AppConfig {
             theme: ThemeColors::default(),
             search_paths: vec![home_dir],
             excluded_dirs: vec![
-                "node_modules", ".git", ".cache", ".cargo", ".npm", ".rustup",
-                "target", "Trash", ".local", ".config", ".mozilla", ".thunderbird",
-                "__pycache__", ".pycache", ".venv", "venv", "env", ".env",
-                ".tox", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-                "dist", "build", ".next", ".nuxt", ".svelte-kit",
-                ".gradle", ".m2", ".ivy2",
-                "vendor", "bower_components",
-                ".steam", ".wine", "snap",
-                ".thumbnails", ".Trash-1000",
+                "node_modules",
+                ".git",
+                ".cache",
+                ".cargo",
+                ".npm",
+                ".rustup",
+                "target",
+                "Trash",
+                ".local",
+                ".config",
+                ".mozilla",
+                ".thunderbird",
+                "__pycache__",
+                ".pycache",
+                ".venv",
+                "venv",
+                "env",
+                ".env",
+                ".tox",
+                ".mypy_cache",
+                ".pytest_cache",
+                ".ruff_cache",
+                "dist",
+                "build",
+                ".next",
+                ".nuxt",
+                ".svelte-kit",
+                ".gradle",
+                ".m2",
+                ".ivy2",
+                "vendor",
+                "bower_components",
+                ".steam",
+                ".wine",
+                "snap",
+                ".thumbnails",
+                ".Trash-1000",
             ]
             .into_iter()
             .map(String::from)
             .collect(),
             excluded_extensions: vec![
-                "o", "so", "a", "dylib", "pyc", "pyo", "class", "jar",
-                "lock", "log", "tmp", "swp", "swo",
-                "min.js", "min.css", "map",
-                "whl", "egg-info",
+                "o", "so", "a", "dylib", "pyc", "pyo", "class", "jar", "lock", "log", "tmp", "swp",
+                "swo", "min.js", "min.css", "map", "whl", "egg-info",
             ]
             .into_iter()
             .map(String::from)
@@ -104,7 +130,12 @@ impl AppConfig {
     pub fn save(&self) -> Result<(), std::io::Error> {
         let base_dirs = match BaseDirs::new() {
             Some(dirs) => dirs,
-            None => return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "Could not find home directory")),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "Could not find home directory",
+                ))
+            }
         };
 
         let config_dir = base_dirs.config_dir().join("spotsearch");

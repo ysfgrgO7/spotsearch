@@ -1,7 +1,9 @@
 use base64::Engine;
+use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::SystemTime;
 
 #[derive(serde::Serialize, Clone)]
 pub struct AppResult {
@@ -10,42 +12,205 @@ pub struct AppResult {
     pub icon_data: Option<String>,
     pub desktop_file: String,
     pub categories: Option<String>,
+    pub keywords: Option<String>,
+    pub generic_name: Option<String>,
 }
 
-static APPS_CACHE: OnceLock<Vec<AppResult>> = OnceLock::new();
+struct CacheData {
+    apps: Vec<AppResult>,
+    dir_modified_times: HashMap<PathBuf, Option<SystemTime>>,
+}
 
-pub fn get_apps() -> Vec<AppResult> {
-    APPS_CACHE
-        .get_or_init(|| {
-            let mut apps = Vec::new();
-            let dirs = vec!["/usr/share/applications", "/usr/local/share/applications"];
+static APPS_CACHE: Mutex<Option<CacheData>> = Mutex::new(None);
+static ICON_SEARCH_DIRS: OnceLock<Vec<String>> = OnceLock::new();
 
-            // Also check ~/.local/share/applications
-            let home_apps = dirs::home_dir()
-                .map(|h| h.join(".local/share/applications"))
-                .filter(|p| p.exists());
+/// Get standard, flatpak, and user application directories.
+fn get_application_dirs() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
 
-            for dir_path in dirs
-                .iter()
-                .map(|d| std::path::PathBuf::from(d))
-                .chain(home_apps)
-            {
-                if !dir_path.exists() {
+    // 1. Read directories from $XDG_DATA_DIRS environment variable
+    if let Ok(xdg_data_dirs) = std::env::var("XDG_DATA_DIRS") {
+        for dir in xdg_data_dirs.split(':') {
+            if !dir.is_empty() {
+                let p = PathBuf::from(dir).join("applications");
+                if p.exists() && !paths.contains(&p) {
+                    paths.push(p);
+                }
+            }
+        }
+    }
+
+    // 2. Add standard/fallback paths
+    let standard_dirs = vec![
+        "/usr/share/applications",
+        "/usr/local/share/applications",
+        "/var/lib/flatpak/exports/share/applications",
+    ];
+
+    for dir in standard_dirs {
+        let p = PathBuf::from(dir);
+        if p.exists() && !paths.contains(&p) {
+            paths.push(p);
+        }
+    }
+
+    // 3. Add home paths
+    if let Some(home) = dirs::home_dir() {
+        let home_paths = vec![
+            home.join(".local/share/applications"),
+            home.join(".local/share/flatpak/exports/share/applications"),
+        ];
+        for p in home_paths {
+            if p.exists() && !paths.contains(&p) {
+                paths.push(p);
+            }
+        }
+    }
+
+    paths
+}
+
+/// Dynamically returns or caches hicolor apps icon directories of all sizes.
+fn get_icon_search_dirs() -> &'static [String] {
+    ICON_SEARCH_DIRS.get_or_init(|| {
+        let mut dirs = Vec::new();
+        let sizes = ["48x48", "64x64", "128x128", "256x256", "32x32", "scalable"];
+
+        // 1. Check directories from XDG_DATA_DIRS
+        if let Ok(xdg_data_dirs) = std::env::var("XDG_DATA_DIRS") {
+            for base_dir in xdg_data_dirs.split(':') {
+                if base_dir.is_empty() {
                     continue;
                 }
-                if let Ok(entries) = fs::read_dir(&dir_path) {
-                    for entry in entries.flatten() {
-                        if entry.path().extension().and_then(|s| s.to_str()) == Some("desktop") {
-                            if let Some(app) = parse_desktop_file(&entry.path()) {
-                                apps.push(app);
+                let base_path = PathBuf::from(base_dir);
+                for size in &sizes {
+                    let p = base_path.join(format!("icons/hicolor/{}/apps", size));
+                    if p.exists() {
+                        if let Some(s) = p.to_str() {
+                            dirs.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Add system fallbacks
+        let fallback_bases = vec![
+            "/usr/share",
+            "/usr/local/share",
+            "/var/lib/flatpak/exports/share",
+        ];
+
+        for base in fallback_bases {
+            let base_path = PathBuf::from(base);
+            for size in &sizes {
+                let p = base_path.join(format!("icons/hicolor/{}/apps", size));
+                if p.exists() {
+                    if let Some(s) = p.to_str() {
+                        let s_str = s.to_string();
+                        if !dirs.contains(&s_str) {
+                            dirs.push(s_str);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Add home paths
+        if let Some(home) = dirs::home_dir() {
+            let home_bases = vec![
+                home.join(".local/share"),
+                home.join(".local/share/flatpak/exports/share"),
+            ];
+            for base_path in home_bases {
+                for size in &sizes {
+                    let p = base_path.join(format!("icons/hicolor/{}/apps", size));
+                    if p.exists() {
+                        if let Some(s) = p.to_str() {
+                            let s_str = s.to_string();
+                            if !dirs.contains(&s_str) {
+                                dirs.push(s_str);
                             }
                         }
                     }
                 }
             }
-            apps
-        })
-        .clone()
+
+            // Also check ~/.icons
+            let p = home.join(".icons");
+            if p.exists() {
+                if let Some(s) = p.to_str() {
+                    let s_str = s.to_string();
+                    if !dirs.contains(&s_str) {
+                        dirs.push(s_str);
+                    }
+                }
+            }
+        }
+
+        // Also include /usr/share/pixmaps
+        let pixmaps = "/usr/share/pixmaps".to_string();
+        if Path::new(&pixmaps).exists() && !dirs.contains(&pixmaps) {
+            dirs.push(pixmaps);
+        }
+
+        dirs
+    })
+}
+
+pub fn get_apps() -> Vec<AppResult> {
+    let mut cache_lock = match APPS_CACHE.lock() {
+        Ok(guard) => guard,
+        Err(_) => return Vec::new(),
+    };
+
+    let dirs = get_application_dirs();
+
+    // Check if we need to reload
+    let mut needs_reload = cache_lock.is_none();
+
+    if let Some(ref data) = *cache_lock {
+        // Compare folder modification times
+        for dir in &dirs {
+            let current_mtime = fs::metadata(dir).and_then(|m| m.modified()).ok();
+
+            let cached_mtime = data.dir_modified_times.get(dir).cloned().flatten();
+
+            if current_mtime != cached_mtime {
+                needs_reload = true;
+                break;
+            }
+        }
+    }
+
+    if needs_reload {
+        let mut apps = Vec::new();
+        let mut dir_modified_times = HashMap::new();
+
+        for dir in &dirs {
+            let mtime = fs::metadata(dir).and_then(|m| m.modified()).ok();
+            dir_modified_times.insert(dir.clone(), mtime);
+
+            if let Ok(entries) = fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    if entry.path().extension().and_then(|s| s.to_str()) == Some("desktop") {
+                        if let Some(app) = parse_desktop_file(&entry.path()) {
+                            apps.push(app);
+                        }
+                    }
+                }
+            }
+        }
+
+        *cache_lock = Some(CacheData {
+            apps: apps.clone(),
+            dir_modified_times,
+        });
+
+        apps
+    } else {
+        cache_lock.as_ref().unwrap().apps.clone()
+    }
 }
 
 fn parse_desktop_file(path: &Path) -> Option<AppResult> {
@@ -56,6 +221,8 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
     let mut hidden = false;
     let mut nodisplay = false;
     let mut categories = None;
+    let mut keywords = None;
+    let mut generic_name = None;
 
     let mut in_desktop_entry = false;
     for line in content.lines() {
@@ -90,7 +257,6 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
             nodisplay = true;
         } else if line.starts_with("Categories=") && categories.is_none() {
             let raw = line["Categories=".len()..].to_string();
-            // Pick the first meaningful category
             let cat = raw
                 .split(';')
                 .find(|c| {
@@ -105,6 +271,18 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
                 .to_string();
             if !cat.is_empty() {
                 categories = Some(cat);
+            }
+        } else if (line.starts_with("Keywords=") || line.starts_with("Keywords["))
+            && keywords.is_none()
+        {
+            if let Some((_, val)) = line.split_once('=') {
+                keywords = Some(val.to_string());
+            }
+        } else if (line.starts_with("GenericName=") || line.starts_with("GenericName["))
+            && generic_name.is_none()
+        {
+            if let Some((_, val)) = line.split_once('=') {
+                generic_name = Some(val.to_string());
             }
         }
     }
@@ -122,6 +300,8 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
         icon_data,
         desktop_file: path.to_string_lossy().to_string(),
         categories,
+        keywords,
+        generic_name,
     })
 }
 
@@ -143,20 +323,10 @@ fn resolve_icon_path(icon_name: &str) -> Option<String> {
         }
     }
 
-    let search_dirs = [
-        // Prefer 48x48 and 64x64 PNGs
-        "/usr/share/icons/hicolor/48x48/apps",
-        "/usr/share/icons/hicolor/64x64/apps",
-        "/usr/share/icons/hicolor/128x128/apps",
-        "/usr/share/icons/hicolor/256x256/apps",
-        "/usr/share/icons/hicolor/32x32/apps",
-        "/usr/share/icons/hicolor/scalable/apps",
-        "/usr/share/pixmaps",
-    ];
-
+    let search_dirs = get_icon_search_dirs();
     let extensions = ["png", "svg", "xpm"];
 
-    for dir in &search_dirs {
+    for dir in search_dirs {
         for ext in &extensions {
             let candidate = format!("{}/{}.{}", dir, icon_name, ext);
             if Path::new(&candidate).exists() {
@@ -184,7 +354,6 @@ fn resolve_icon_to_data_uri(icon_name: &str) -> Option<String> {
             base64::engine::general_purpose::STANDARD.encode(&data)
         ))
     } else {
-        // For anything else (xpm, etc.), skip
         None
     }
 }

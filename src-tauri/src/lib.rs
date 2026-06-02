@@ -2,8 +2,8 @@ use std::process::Command;
 use std::thread;
 use tauri::{command, AppHandle, Manager, State};
 mod apps;
-mod indexer;
 mod config;
+mod indexer;
 use config::AppConfig;
 use std::sync::Mutex;
 
@@ -15,6 +15,24 @@ pub struct SearchResult {
     pub is_app: bool,
     pub exec: Option<String>,
     pub subtitle: Option<String>,
+}
+
+fn is_acronym_match(query: &str, name: &str) -> bool {
+    let name_lower = name.to_lowercase();
+    let query_lower = query.to_lowercase();
+
+    // Extract first letters of all alphanumeric words
+    let initials: String = name_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .filter_map(|word| word.chars().next())
+        .collect();
+
+    if initials.is_empty() {
+        return false;
+    }
+
+    initials.starts_with(&query_lower) || query_lower.starts_with(&initials)
 }
 
 #[command]
@@ -33,9 +51,16 @@ fn search(query: &str, indexer: State<'_, indexer::Indexer>) -> Vec<SearchResult
         let app_name = app.name.to_lowercase();
         let app_exec = app.exec.to_lowercase();
         let app_file = app.desktop_file.to_lowercase();
+        let app_keywords = app.keywords.as_deref().unwrap_or("").to_lowercase();
+        let app_generic = app.generic_name.as_deref().unwrap_or("").to_lowercase();
 
         let matches = terms.iter().all(|term| {
-            app_name.contains(term) || app_exec.contains(term) || app_file.contains(term)
+            app_name.contains(term)
+                || app_exec.contains(term)
+                || app_file.contains(term)
+                || app_keywords.contains(term)
+                || app_generic.contains(term)
+                || is_acronym_match(term, &app.name)
         });
 
         if matches {
@@ -45,7 +70,7 @@ fn search(query: &str, indexer: State<'_, indexer::Indexer>) -> Vec<SearchResult
                 icon_data: app.icon_data,
                 is_app: true,
                 exec: Some(app.exec.clone()),
-                subtitle: app.categories,
+                subtitle: app.generic_name.clone().or(app.categories.clone()),
             });
         }
     }
@@ -102,7 +127,7 @@ fn get_config(config_state: State<'_, Mutex<AppConfig>>) -> AppConfig {
 fn save_config(
     new_config: AppConfig,
     config_state: State<'_, Mutex<AppConfig>>,
-    indexer: State<'_, indexer::Indexer>
+    indexer: State<'_, indexer::Indexer>,
 ) -> Result<(), String> {
     let mut config = config_state.lock().unwrap();
 
@@ -154,7 +179,8 @@ pub struct UpdateInfo {
 fn check_for_updates() -> Result<UpdateInfo, String> {
     use std::fs;
     use std::process::Command;
-    let base_dirs = directories::BaseDirs::new().ok_or_else(|| "Could not determine home directory".to_string())?;
+    let base_dirs = directories::BaseDirs::new()
+        .ok_or_else(|| "Could not determine home directory".to_string())?;
     let share_dir = base_dirs.data_local_dir().join("spotsearch");
     let version_file = share_dir.join("version");
     let repo_path_file = share_dir.join("repo_path");
@@ -162,9 +188,9 @@ fn check_for_updates() -> Result<UpdateInfo, String> {
     let current_version = if version_file.exists() {
         fs::read_to_string(&version_file)
             .map(|s| s.trim().to_string())
-            .unwrap_or_else(|_| "0.1.0".to_string())
+            .unwrap_or_else(|_| "1.0.1".to_string())
     } else {
-        "0.1.0".to_string()
+        "1.0.1".to_string()
     };
 
     let repo_path = if repo_path_file.exists() {
@@ -180,10 +206,7 @@ fn check_for_updates() -> Result<UpdateInfo, String> {
 
     if let Some(ref path) = repo_path {
         // Try to fetch latest changes from git remote to know if there's any update
-        let _ = Command::new("git")
-            .arg("fetch")
-            .current_dir(path)
-            .status();
+        let _ = Command::new("git").arg("fetch").current_dir(path).status();
 
         // Try origin/main package.json first, then origin/master as fallback
         let mut got_remote_version = false;
@@ -239,7 +262,8 @@ fn apply_update(_app: AppHandle) -> Result<(), String> {
     use std::fs;
     use std::process::Command;
 
-    let base_dirs = directories::BaseDirs::new().ok_or_else(|| "Could not determine home directory".to_string())?;
+    let base_dirs = directories::BaseDirs::new()
+        .ok_or_else(|| "Could not determine home directory".to_string())?;
     let share_dir = base_dirs.data_local_dir().join("spotsearch");
     let repo_path_file = share_dir.join("repo_path");
 
@@ -253,7 +277,10 @@ fn apply_update(_app: AppHandle) -> Result<(), String> {
 
     let install_script = std::path::Path::new(&repo_path).join("install.sh");
     if !install_script.exists() {
-        return Err(format!("Installer script not found at {:?}", install_script));
+        return Err(format!(
+            "Installer script not found at {:?}",
+            install_script
+        ));
     }
 
     let repo_path_clone = repo_path.clone();
@@ -273,14 +300,14 @@ fn apply_update(_app: AppHandle) -> Result<(), String> {
         match status {
             Ok(s) if s.success() => {
                 println!("Auto-update successfully built and installed!");
-                
+
                 if let Some(base_dirs) = directories::BaseDirs::new() {
                     let bin_path = base_dirs.home_dir().join(".local/bin/spotsearch");
                     if bin_path.exists() {
                         let _ = Command::new(bin_path).spawn();
                     }
                 }
-                
+
                 std::process::exit(0);
             }
             _ => {
@@ -299,7 +326,7 @@ fn is_wayland() -> bool {
 
 #[cfg(target_os = "linux")]
 fn setup_wayland_grab(window: &tauri::WebviewWindow) {
-    use gtk_layer_shell::{Edge, Layer, KeyboardMode, LayerShell};
+    use gtk_layer_shell::{Edge, KeyboardMode, Layer, LayerShell};
 
     if !gtk_layer_shell::is_supported() {
         println!("Wayland compositor does not support Layer Shell protocol. Falling back to normal window.");
@@ -309,19 +336,19 @@ fn setup_wayland_grab(window: &tauri::WebviewWindow) {
     if let Ok(gtk_window) = window.gtk_window() {
         // Initialize the window as a Wayland Layer Surface
         gtk_window.init_layer_shell();
-        
+
         // Place it in the overlay layer (above everything, including panels)
         gtk_window.set_layer(Layer::Overlay);
-        
+
         // Force exclusive keyboard grab (Compositor redirects all keys to our app)
         gtk_window.set_keyboard_mode(KeyboardMode::Exclusive);
-        
+
         // Disable anchoring so it floats centered
         gtk_window.set_anchor(Edge::Top, false);
         gtk_window.set_anchor(Edge::Bottom, false);
         gtk_window.set_anchor(Edge::Left, false);
         gtk_window.set_anchor(Edge::Right, false);
-        
+
         println!("Wayland overlay & exclusive keyboard grab initialized successfully.");
     }
 }
@@ -343,7 +370,7 @@ fn grab_keyboard_x11(window: &tauri::Window) {
                     None,
                     None,
                 );
-                
+
                 if grab_status == gdk::GrabStatus::Success {
                     println!("X11 keyboard grab successfully established.");
                 } else {
@@ -390,7 +417,6 @@ pub fn run() {
                 }
             }
         }))
-
         .invoke_handler(tauri::generate_handler![
             search,
             hide_window,
@@ -487,8 +513,6 @@ pub fn run() {
                     .args(["keyword", "windowrulev2", "center,title:SpotSearch"])
                     .output();
             }
-
-
 
             // Check for --toggle flag
             use tauri_plugin_cli::CliExt;
