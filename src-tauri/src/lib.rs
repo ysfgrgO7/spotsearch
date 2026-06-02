@@ -149,6 +149,10 @@ fn save_config(
 
 #[command]
 fn open_settings(app: AppHandle) {
+    if let Some(main_window) = app.get_webview_window("main") {
+        let _ = main_window.hide();
+    }
+
     if let Some(settings_window) = app.get_webview_window("settings") {
         let _ = settings_window.show();
         let _ = settings_window.set_focus();
@@ -257,10 +261,33 @@ fn check_for_updates() -> Result<UpdateInfo, String> {
     })
 }
 
+fn strip_ansi_codes(input: &str) -> String {
+    let mut result = String::new();
+    let mut chars = input.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' || c == '\u{1b}' {
+            if let Some('[') = chars.peek() {
+                let _ = chars.next(); // consume '['
+                while let Some(&next_c) = chars.peek() {
+                    let _ = chars.next();
+                    if next_c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 #[command]
-fn apply_update(_app: AppHandle) -> Result<(), String> {
+fn apply_update(app: AppHandle) -> Result<(), String> {
     use std::fs;
-    use std::process::Command;
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use tauri::Emitter;
 
     let base_dirs = directories::BaseDirs::new()
         .ok_or_else(|| "Could not determine home directory".to_string())?;
@@ -284,22 +311,82 @@ fn apply_update(_app: AppHandle) -> Result<(), String> {
     }
 
     let repo_path_clone = repo_path.clone();
+    let app_clone = app.clone();
+
     std::thread::spawn(move || {
-        // Try to pull the latest changes
-        let _ = Command::new("git")
+        let emit_log = |msg: &str, is_system: bool| {
+            #[derive(serde::Serialize, Clone)]
+            struct LogPayload {
+                message: String,
+                is_system: bool,
+            }
+            let _ = app_clone.emit(
+                "update-log",
+                LogPayload {
+                    message: msg.to_string(),
+                    is_system,
+                },
+            );
+        };
+
+        emit_log("Starting update process...", true);
+        emit_log("Pulling latest changes from git repository...", true);
+
+        // Run git pull
+        let git_status = Command::new("git")
             .arg("pull")
             .current_dir(&repo_path_clone)
             .status();
 
-        let status = Command::new("bash")
-            .arg("install.sh")
-            .arg("--auto-update")
+        match git_status {
+            Ok(s) if s.success() => {
+                emit_log("Git pull completed successfully.", true);
+            }
+            _ => {
+                emit_log("Warning: Git pull failed or repository has no remote.", true);
+            }
+        }
+
+        emit_log("Running install script...", true);
+
+        // Run bash install.sh --auto-update and capture stdout/stderr merged (using bash -c)
+        let mut child = match Command::new("bash")
+            .arg("-c")
+            .arg("bash install.sh --auto-update 2>&1")
             .current_dir(&repo_path_clone)
-            .status();
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let err_msg = format!("Failed to start installer script: {}", e);
+                emit_log(&err_msg, true);
+                let _ = app_clone.emit("update-error", err_msg);
+                return;
+            }
+        };
+
+        if let Some(stdout) = child.stdout.take() {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line_content) = line {
+                    let cleaned_line = strip_ansi_codes(&line_content);
+                    emit_log(&cleaned_line, false);
+                }
+            }
+        }
+
+        let status = child.wait();
 
         match status {
             Ok(s) if s.success() => {
-                println!("Auto-update successfully built and installed!");
+                emit_log("Auto-update successfully built and installed!", true);
+                emit_log("Launching updated SpotSearch and exiting in 2 seconds...", true);
+                
+                let _ = app_clone.emit("update-complete", ());
+
+                // Sleep to allow the user to see the success message
+                std::thread::sleep(std::time::Duration::from_secs(2));
 
                 if let Some(base_dirs) = directories::BaseDirs::new() {
                     let bin_path = base_dirs.home_dir().join(".local/bin/spotsearch");
@@ -311,7 +398,8 @@ fn apply_update(_app: AppHandle) -> Result<(), String> {
                 std::process::exit(0);
             }
             _ => {
-                eprintln!("Auto-update failed to build or install.");
+                emit_log("Error: Auto-update failed to build or install.", true);
+                let _ = app_clone.emit("update-error", "Auto-update failed to build or install.".to_string());
             }
         }
     });

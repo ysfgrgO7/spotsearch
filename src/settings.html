@@ -175,6 +175,25 @@
             <button id="check-updates-btn" class="action-btn">Check for Updates</button>
             <button id="apply-update-btn" class="action-btn-accent" style="display: none;">Install Update Now</button>
           </div>
+
+          <!-- Progress & Compilation Log area -->
+          <div id="update-progress-container" class="update-progress-container" style="display: none;">
+            <div class="progress-header">
+              <span id="progress-status">Preparing update...</span>
+              <span id="progress-percent">0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div id="progress-bar-fill" class="progress-bar-fill"></div>
+            </div>
+            
+            <div class="log-container-header">
+              <span>Compilation Logs</span>
+              <button id="copy-log-btn" class="copy-log-btn" title="Copy logs to clipboard">Copy Logs</button>
+            </div>
+            <div id="update-log-console" class="update-log-console">
+              <div class="log-line system-line">[System] Initializing updater...</div>
+            </div>
+          </div>
         </div>
       </div>
 

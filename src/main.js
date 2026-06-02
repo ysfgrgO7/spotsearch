@@ -94,6 +94,127 @@ window.addEventListener("DOMContentLoaded", () => {
   });
 });
 
+function evaluateMath(str) {
+  str = str.replace(/\s+/g, '');
+  if (!/^[0-9+\-*/().^%]+$/.test(str)) {
+    return null;
+  }
+  if (!/[+\-*/%^]/.test(str)) {
+    return null;
+  }
+
+  let index = 0;
+  
+  function peek() {
+    return index < str.length ? str[index] : null;
+  }
+  
+  function consume(char) {
+    if (peek() === char) {
+      index++;
+      return true;
+    }
+    return false;
+  }
+  
+  function parseExpression() {
+    let val = parseTerm();
+    if (val === null) return null;
+    
+    while (true) {
+      if (consume('+')) {
+        let right = parseTerm();
+        if (right === null) return null;
+        val += right;
+      } else if (consume('-')) {
+        let right = parseTerm();
+        if (right === null) return null;
+        val -= right;
+      } else {
+        break;
+      }
+    }
+    return val;
+  }
+  
+  function parseTerm() {
+    let val = parseFactor();
+    if (val === null) return null;
+    
+    while (true) {
+      if (consume('*')) {
+        let right = parseFactor();
+        if (right === null) return null;
+        val *= right;
+      } else if (consume('/')) {
+        let right = parseFactor();
+        if (right === null) return null;
+        if (right === 0) return null;
+        val /= right;
+      } else if (consume('%')) {
+        let right = parseFactor();
+        if (right === null) return null;
+        val %= right;
+      } else {
+        break;
+      }
+    }
+    return val;
+  }
+  
+  function parseFactor() {
+    let val = parseBase();
+    if (val === null) return null;
+    
+    if (consume('^')) {
+      let exponent = parseFactor();
+      if (exponent === null) return null;
+      val = Math.pow(val, exponent);
+    }
+    return val;
+  }
+  
+  function parseBase() {
+    if (consume('(')) {
+      let val = parseExpression();
+      if (val === null) return null;
+      if (!consume(')')) return null;
+      return val;
+    }
+    
+    if (consume('-')) {
+      let val = parseBase();
+      return val === null ? null : -val;
+    }
+    
+    if (consume('+')) {
+      return parseBase();
+    }
+    
+    let start = index;
+    while (peek() !== null && /[0-9.]/.test(peek())) {
+      index++;
+    }
+    
+    if (start === index) {
+      return null;
+    }
+    
+    let numStr = str.substring(start, index);
+    let val = parseFloat(numStr);
+    if (isNaN(val)) return null;
+    return val;
+  }
+  
+  try {
+    let result = parseExpression();
+    if (index === str.length && result !== null && !isNaN(result) && isFinite(result)) {
+      return result;
+    }
+  } catch (e) {}
+  return null;
+}
+
 async function search(query) {
   if (!query.trim()) {
     currentResults = [];
@@ -110,17 +231,48 @@ async function search(query) {
     const results = await invoke("search", { query });
     if (mySearchId === searchId) {
       currentResults = results;
+      
+      const calcResult = evaluateMath(query);
+      if (calcResult !== null) {
+        const formattedResult = calcResult.toLocaleString(undefined, { maximumFractionDigits: 10 });
+        const calcItem = {
+          name: formattedResult,
+          subtitle: `Calculator: ${query}`,
+          is_app: false,
+          is_calc: true,
+          value: calcResult.toString(),
+        };
+        currentResults.unshift(calcItem);
+      }
+      
       selectedIndex = 0;
       renderResults();
     }
   } catch (error) {
     console.error("Search error:", error);
+    if (mySearchId === searchId) {
+      const calcResult = evaluateMath(query);
+      if (calcResult !== null) {
+        const formattedResult = calcResult.toLocaleString(undefined, { maximumFractionDigits: 10 });
+        const calcItem = {
+          name: formattedResult,
+          subtitle: `Calculator: ${query}`,
+          is_app: false,
+          is_calc: true,
+          value: calcResult.toString(),
+        };
+        currentResults = [calcItem];
+        selectedIndex = 0;
+        renderResults();
+      }
+    }
   }
 }
 
 // SVG icons for file types
 const FILE_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>`;
 const APP_ICON_FALLBACK = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>`;
+const CALC_ICON = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="16" y1="14" x2="16" y2="18"/><path d="M16 10h.01"/><path d="M12 10h.01"/><path d="M8 10h.01"/><path d="M12 14h.01"/><path d="M8 14h.01"/><path d="M12 18h.01"/><path d="M8 18h.01"/></svg>`;
 
 function renderResults() {
   resultsEl.innerHTML = "";
@@ -135,10 +287,24 @@ function renderResults() {
     return;
   }
 
+  const calcs = currentResults.filter(r => r.is_calc);
   const apps = currentResults.filter(r => r.is_app);
-  const files = currentResults.filter(r => !r.is_app);
+  const files = currentResults.filter(r => !r.is_app && !r.is_calc);
 
   let flatIndex = 0;
+
+  // --- Calculator section ---
+  if (calcs.length > 0) {
+    const header = document.createElement("div");
+    header.className = "section-header";
+    header.textContent = "Calculator";
+    resultsEl.appendChild(header);
+
+    calcs.forEach((result) => {
+      const itemIndex = flatIndex++;
+      resultsEl.appendChild(createResultItem(result, itemIndex));
+    });
+  }
 
   // --- Applications section ---
   if (apps.length > 0) {
@@ -179,7 +345,9 @@ function createResultItem(result, idx) {
   const iconWrap = document.createElement("div");
   iconWrap.className = "result-icon";
 
-  if (result.is_app && result.icon_data) {
+  if (result.is_calc) {
+    iconWrap.innerHTML = CALC_ICON;
+  } else if (result.is_app && result.icon_data) {
     const img = document.createElement("img");
     img.src = result.icon_data;
     img.width = 28;
@@ -223,15 +391,14 @@ function createResultItem(result, idx) {
 
   item.appendChild(textContainer);
 
-  // Keyboard and mouse pointer syncing - sliding selection backdrop follows mouse movement
-  item.addEventListener("mouseenter", () => {
-    selectedIndex = idx;
-    updateSelection();
-  });
-
+  // Click to select, second click to open (hover selection removed)
   item.addEventListener("click", () => {
-    selectedIndex = idx;
-    openResult(result);
+    if (selectedIndex === idx) {
+      openResult(result);
+    } else {
+      selectedIndex = idx;
+      updateSelection();
+    }
   });
 
   return item;
@@ -275,6 +442,20 @@ function updateBackdrop(selectedEl) {
 }
 
 async function openResult(result) {
+  if (result.is_calc) {
+    try {
+      await navigator.clipboard.writeText(result.value);
+    } catch (error) {
+      console.error("Failed to copy to clipboard:", error);
+    }
+    inputEl.value = "";
+    currentResults = [];
+    updateVisibility("");
+    renderResults();
+    await invoke("hide_window");
+    return;
+  }
+
   try {
     await invoke("open_result", { result });
     inputEl.value = "";

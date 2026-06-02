@@ -379,18 +379,139 @@ function setupEventListeners() {
   });
 
   // Apply update button
+  const { listen } = window.__TAURI__.event;
+  let logHistory = [];
+  let currentProgress = 0;
+
+  const progressContainer = document.getElementById("update-progress-container");
+  const progressStatus = document.getElementById("progress-status");
+  const progressPercent = document.getElementById("progress-percent");
+  const progressBarFill = document.getElementById("progress-bar-fill");
+  const logConsole = document.getElementById("update-log-console");
+  const copyLogBtn = document.getElementById("copy-log-btn");
+
+  function appendLog(text, isSystem = false, isError = false) {
+    const line = document.createElement("div");
+    line.className = "log-line";
+    if (isSystem) line.classList.add("system-line");
+    if (isError) line.classList.add("error-line");
+    line.textContent = text;
+    logConsole.appendChild(line);
+    logConsole.scrollTop = logConsole.scrollHeight;
+    logHistory.push(text);
+  }
+
+  function setProgress(percentage, statusText) {
+    const pct = Math.min(Math.max(Math.round(percentage), 0), 100);
+    progressBarFill.style.width = `${pct}%`;
+    progressPercent.textContent = `${pct}%`;
+    if (statusText) {
+      progressStatus.textContent = statusText;
+    }
+  }
+
+  function updateProgressFromLog(line) {
+    if (line.includes("Starting update process")) {
+      currentProgress = 5;
+      setProgress(currentProgress, "Initializing updater...");
+    } else if (line.includes("Pulling latest changes")) {
+      currentProgress = 10;
+      setProgress(currentProgress, "Pulling latest git changes...");
+    } else if (line.includes("Git pull completed") || line.includes("Warning: Git pull failed")) {
+      currentProgress = 15;
+      setProgress(currentProgress, "Git sync completed.");
+    } else if (line.includes("Running install script")) {
+      currentProgress = 20;
+      setProgress(currentProgress, "Running installer...");
+    } else if (line.includes("Updating NPM dependencies")) {
+      currentProgress = 25;
+      setProgress(currentProgress, "Updating NPM dependencies...");
+    } else if (line.includes("Building SpotSearch in release mode")) {
+      currentProgress = 40;
+      setProgress(currentProgress, "Compiling Tauri application...");
+    } else if (line.includes("Compiling ")) {
+      if (currentProgress < 88) {
+        currentProgress += 0.5;
+        setProgress(currentProgress, "Compiling application...");
+      }
+    } else if (line.includes("Setting up directories")) {
+      currentProgress = 90;
+      setProgress(currentProgress, "Configuring directories...");
+    } else if (line.includes("Installing SpotSearch binary")) {
+      currentProgress = 93;
+      setProgress(currentProgress, "Installing executable...");
+    } else if (line.includes("Registering desktop launcher")) {
+      currentProgress = 96;
+      setProgress(currentProgress, "Registering desktop launcher...");
+    } else if (line.includes("Auto-update successfully built and installed")) {
+      currentProgress = 98;
+      setProgress(currentProgress, "Build and install completed!");
+    }
+  }
+
+  // Copy Logs button
+  copyLogBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(logHistory.join("\n"))
+      .then(() => {
+        copyLogBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyLogBtn.textContent = "Copy Logs";
+        }, 2000);
+      })
+      .catch(err => {
+        console.error("Failed to copy logs:", err);
+      });
+  });
+
+  // Listen to background progress events
+  listen("update-log", (event) => {
+    const payload = event.payload;
+    appendLog(payload.message, payload.is_system);
+    updateProgressFromLog(payload.message);
+  });
+
+  listen("update-error", (event) => {
+    appendLog(`[Error] ${event.payload}`, true, true);
+    setProgress(currentProgress, "Update failed.");
+    progressBarFill.style.background = "var(--danger)";
+    progressBarFill.style.boxShadow = "0 0 10px rgba(239, 68, 68, 0.5)";
+    applyUpdateBtn.disabled = false;
+    checkUpdatesBtn.disabled = false;
+    applyUpdateBtn.textContent = "Retry Update";
+  });
+
+  listen("update-complete", () => {
+    appendLog("[System] Update process finished successfully!", true);
+    setProgress(100, "Update complete! Restarting SpotSearch...");
+    progressBarFill.style.background = "linear-gradient(90deg, #34d399, #10b981)";
+    progressBarFill.style.boxShadow = "0 0 10px rgba(52, 211, 153, 0.5)";
+  });
+
   applyUpdateBtn.addEventListener("click", async () => {
     applyUpdateBtn.disabled = true;
-    applyUpdateBtn.textContent = "Installing Update...";
-    updateMessage.textContent = "Rebuilding SpotSearch from local repository. This window will automatically restart in a few moments...";
+    checkUpdatesBtn.disabled = true;
+    applyUpdateBtn.textContent = "Updating...";
+    
+    // Show progress panel & reset state
+    progressContainer.style.display = "flex";
+    logConsole.innerHTML = "";
+    logHistory = [];
+    currentProgress = 0;
+    setProgress(0, "Starting update...");
+    progressBarFill.style.background = "linear-gradient(90deg, var(--accent), #c084fc)";
+    progressBarFill.style.boxShadow = "0 0 10px rgba(133, 96, 246, 0.5)";
+    
+    updateMessage.textContent = "Rebuilding SpotSearch from local repository. Track real-time progress below:";
     updateMessage.style.color = "var(--text-dim)";
     
     try {
       await invoke("apply_update");
     } catch (error) {
+      appendLog(`[Error] Failed to trigger update: ${error}`, true, true);
       updateMessage.textContent = `Failed to apply update: ${error}`;
       updateMessage.style.color = "#ef4444";
       applyUpdateBtn.disabled = false;
+      checkUpdatesBtn.disabled = false;
       applyUpdateBtn.textContent = "Install Update Now";
     }
   });

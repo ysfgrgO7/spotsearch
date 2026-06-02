@@ -647,3 +647,126 @@ button:active {
   display: flex;
   gap: 12px;
 }
+
+/* Progress & Log Console styles */
+.update-progress-container {
+  margin-top: 16px;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+#progress-status {
+  color: var(--text-primary);
+}
+
+#progress-percent {
+  color: var(--accent);
+}
+
+.progress-bar-track {
+  width: 100%;
+  height: 8px;
+  background-color: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #c084fc);
+  border-radius: 4px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 0 10px rgba(133, 96, 246, 0.5);
+}
+
+.log-container-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.copy-log-btn {
+  background: none;
+  border: 1px solid var(--border-color);
+  color: var(--text-muted);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 500;
+  transition: var(--transition);
+}
+
+.copy-log-btn:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.update-log-console {
+  background-color: #0d0d0d;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
+  height: 160px;
+  padding: 12px;
+  overflow-y: auto;
+  font-family: 'Fira Code', 'Courier New', Courier, monospace;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #e4e4e7;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.update-log-console::-webkit-scrollbar {
+  width: 6px;
+}
+
+.update-log-console::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+}
+
+.log-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-line.system-line {
+  color: #a78bfa; /* purple for system events */
+  font-weight: 600;
+}
+
+.log-line.success-line {
+  color: #34d399; /* emerald green for success */
+  font-weight: 600;
+}
+
+.log-line.error-line {
+  color: #f87171; /* red for errors */
+}
