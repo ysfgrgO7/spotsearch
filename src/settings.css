@@ -94,7 +94,7 @@ body {
   background-color: var(--bg-panel);
   display: flex;
   flex-direction: column;
-  padding: 32px;
+  padding: 32px 32px 104px 32px;
   position: relative;
   overflow-y: auto;
   box-sizing: border-box;
@@ -487,6 +487,7 @@ button:active {
   justify-content: space-between;
   padding: 0 32px;
   box-sizing: border-box;
+  z-index: 10;
 }
 
 .btn-group {
