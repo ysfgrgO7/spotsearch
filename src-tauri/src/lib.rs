@@ -835,8 +835,10 @@ pub fn run() {
 
             let toggle_i =
                 MenuItem::with_id(app, "toggle", "Show/Hide SpotSearch", true, None::<&str>)?;
+            let settings_i =
+                MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&toggle_i, &quit_i])?;
+            let menu = Menu::with_items(app, &[&toggle_i, &settings_i, &quit_i])?;
 
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().cloned().unwrap())
@@ -848,9 +850,12 @@ pub fn run() {
                                 let _ = window.hide();
                             } else {
                                 let _ = window.show();
-                                let _ = window.set_focus();
+                                  let _ = window.set_focus();
                             }
                         }
+                    }
+                    "settings" => {
+                        open_settings(app.clone());
                     }
                     "quit" => {
                         app.exit(0);
