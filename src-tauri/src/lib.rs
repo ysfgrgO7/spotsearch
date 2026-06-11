@@ -61,11 +61,11 @@ fn search(
     let mut app_results = Vec::new();
     let apps_list = apps::get_apps();
     for app in apps_list {
-        let app_name = app.name.to_lowercase();
-        let app_exec = app.exec.to_lowercase();
-        let app_file = app.desktop_file.to_lowercase();
-        let app_keywords = app.keywords.as_deref().unwrap_or("").to_lowercase();
-        let app_generic = app.generic_name.as_deref().unwrap_or("").to_lowercase();
+        let app_name = &app.name_lower;
+        let app_exec = &app.exec_lower;
+        let app_file = &app.desktop_file_lower;
+        let app_keywords = &app.keywords_lower;
+        let app_generic = &app.generic_name_lower;
 
         let matches = terms.iter().all(|term| {
             app_name.contains(term)
@@ -134,6 +134,26 @@ fn search(
             is_terminal: Some(false),
             is_settings: Some(false),
         });
+    }
+
+    // --- AI Query Handling ---
+    if lower_query.starts_with('>') {
+        let ai_query = query[1..].trim();
+        if !ai_query.is_empty() {
+            let escaped_query = ai_query.replace("'", "'\\''");
+            results.insert(0, SearchResult {
+                name: format!("Ask AI: {}", ai_query),
+                path: None,
+                icon_data: None,
+                is_app: true, // we treat it as an app to execute its command
+                exec: Some(format!("agy -i '{}'", escaped_query)),
+                subtitle: Some("Opens a local AI terminal session".to_string()),
+                is_websearch: Some(false),
+                url: None,
+                is_terminal: Some(true),
+                is_settings: Some(false),
+            });
+        }
     }
 
     // --- Settings shortcut result ---
@@ -252,21 +272,13 @@ fn run_in_terminal(terminal: &str, exec: &str) -> Result<(), std::io::Error> {
     let mut cmd = Command::new(&term_bin);
 
     if term_lower.contains("gnome-terminal") {
-        cmd.arg("--");
-        let parts: Vec<&str> = exec.split_whitespace().collect();
-        cmd.args(parts);
+        cmd.args(["--", "sh", "-c", exec]);
     } else if term_lower.contains("wezterm") {
-        cmd.args(["start", "--"]);
-        let parts: Vec<&str> = exec.split_whitespace().collect();
-        cmd.args(parts);
+        cmd.args(["start", "--", "sh", "-c", exec]);
     } else if term_lower.contains("kitty") {
-        cmd.arg("--");
-        let parts: Vec<&str> = exec.split_whitespace().collect();
-        cmd.args(parts);
+        cmd.args(["--", "sh", "-c", exec]);
     } else {
-        cmd.arg("-e");
-        let parts: Vec<&str> = exec.split_whitespace().collect();
-        cmd.args(parts);
+        cmd.args(["-e", "sh", "-c", exec]);
     }
 
     cmd.spawn()?;
@@ -312,12 +324,9 @@ fn open_result(
             if is_term {
                 let _ = run_in_terminal(&config.terminal, &exec);
             } else {
-                let parts: Vec<&str> = exec.split_whitespace().collect();
-                if !parts.is_empty() {
-                    let mut cmd = Command::new(parts[0]);
-                    cmd.args(&parts[1..]);
-                    let _ = cmd.spawn();
-                }
+                let mut cmd = Command::new("sh");
+                cmd.args(["-c", &exec]);
+                let _ = cmd.spawn();
             }
         }
     } else {
@@ -335,17 +344,32 @@ fn get_config(config_state: State<'_, Mutex<AppConfig>>) -> AppConfig {
 
 #[command]
 fn save_config(
+    app: AppHandle,
     new_config: AppConfig,
     config_state: State<'_, Mutex<AppConfig>>,
     indexer: State<'_, indexer::Indexer>,
 ) -> Result<(), String> {
     let mut config = config_state.lock().unwrap();
+    let old_shortcut = config.shortcut.clone();
 
     // 1. Save config to disk
     new_config.save().map_err(|e| e.to_string())?;
 
     // 2. Update memory state
     *config = new_config.clone();
+
+    // Re-register shortcut if changed
+    if old_shortcut != new_config.shortcut {
+        use tauri_plugin_global_shortcut::GlobalShortcutExt;
+        use std::str::FromStr;
+        let manager = app.global_shortcut();
+        if let Ok(old_sc) = tauri_plugin_global_shortcut::Shortcut::from_str(&old_shortcut) {
+            let _ = manager.unregister(old_sc);
+        }
+        if let Ok(new_sc) = tauri_plugin_global_shortcut::Shortcut::from_str(&new_config.shortcut) {
+            let _ = manager.register(new_sc);
+        }
+    }
 
     // 3. Trigger indexer rebuild in background
     let indexer_clone = indexer.inner().clone();
@@ -378,6 +402,79 @@ fn open_settings(app: AppHandle) {
         .decorations(true)
         .center()
         .build();
+    }
+}
+
+#[command]
+fn unregister_shortcut(app: AppHandle, config_state: State<'_, Mutex<AppConfig>>) {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    use std::str::FromStr;
+    let config = config_state.lock().unwrap();
+    let manager = app.global_shortcut();
+    if let Ok(sc) = tauri_plugin_global_shortcut::Shortcut::from_str(&config.shortcut) {
+        let _ = manager.unregister(sc);
+    }
+}
+
+#[command]
+fn register_shortcut(app: AppHandle, config_state: State<'_, Mutex<AppConfig>>) {
+    use tauri_plugin_global_shortcut::GlobalShortcutExt;
+    use std::str::FromStr;
+    let config = config_state.lock().unwrap();
+    let manager = app.global_shortcut();
+    if let Ok(sc) = tauri_plugin_global_shortcut::Shortcut::from_str(&config.shortcut) {
+        let _ = manager.register(sc);
+    }
+}
+
+#[command]
+fn ask_ai(app: AppHandle, query: String) {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::thread;
+    use tauri::Emitter;
+
+    let app_clone = app.clone();
+    thread::spawn(move || {
+        let meta_prompt = "You are a fast, small, and accurate assistant. Please provide concise and direct answers without extra fluff. ";
+        let full_query = format!("{}{}", meta_prompt, query);
+        let mut child = match Command::new("agy")
+            .arg("--model")
+            .arg("Gemini 3.5 Flash (Low)")
+            .arg("--print")
+            .arg(&full_query)
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = app_clone.emit("ai-error", e.to_string());
+                return;
+            }
+        };
+
+        if let Some(mut stdout) = child.stdout.take() {
+            let mut buf = [0u8; 128];
+            while let Ok(n) = stdout.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
+                let clean_chunk = strip_ansi_codes(&chunk);
+                let _ = app_clone.emit("ai-chunk", clean_chunk);
+            }
+        }
+        let _ = child.wait();
+        let _ = app_clone.emit("ai-done", ());
+    });
+}
+
+#[command]
+fn check_agy_status() -> bool {
+    use std::process::Command;
+    match Command::new("agy").arg("--help").output() {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
     }
 }
 
@@ -696,9 +793,33 @@ fn ungrab_keyboard_x11(window: &tauri::Window) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let app_config = config::AppConfig::load();
+    let shortcut_str = app_config.shortcut.clone();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_cli::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin({
+            let builder = tauri_plugin_global_shortcut::Builder::new();
+            let builder = builder.with_shortcut(shortcut_str.as_str()).unwrap_or_else(|_| {
+                tauri_plugin_global_shortcut::Builder::new().with_shortcut("Alt+Shift+Space").unwrap()
+            });
+            builder
+                .with_handler(|app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let is_visible = window.is_visible().unwrap_or(false);
+                            if is_visible {
+                                let _ = window.hide();
+                            } else {
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            }
+                        }
+                    }
+                })
+                .build()
+        })
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
                 let has_toggle = argv.iter().any(|arg| arg == "--toggle" || arg == "-t");
@@ -723,7 +844,11 @@ pub fn run() {
             save_config,
             open_settings,
             check_for_updates,
-            apply_update
+            apply_update,
+            unregister_shortcut,
+            register_shortcut,
+            ask_ai,
+            check_agy_status
         ])
         .setup(|app| {
             // Load AppConfig and manage state

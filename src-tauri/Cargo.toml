@@ -1,6 +1,6 @@
 [package]
 name = "tauri-app"
-version = "1.0.6"
+version = "1.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -36,4 +36,5 @@ base64 = "0.22"
 gtk = "0.18"
 gdk = "0.18"
 gtk-layer-shell = { version = "0.8.2", features = ["v0_6"] }
+tauri-plugin-global-shortcut = "2"
 

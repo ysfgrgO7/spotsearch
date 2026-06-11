@@ -10,6 +10,8 @@ pub struct ThemeColors {
     pub accent_bg: String,
     pub accent_bar: String,
     pub glow_color: String,
+    pub border_radius: u32,
+    pub backdrop_blur: u32,
 }
 
 impl Default for ThemeColors {
@@ -21,12 +23,18 @@ impl Default for ThemeColors {
             accent_bg: "rgba(139, 92, 246, 0.15)".to_string(),
             accent_bar: "#8560f6".to_string(),
             glow_color: "rgba(139, 92, 246, 0.12)".to_string(),
+            border_radius: 28,
+            backdrop_blur: 0,
         }
     }
 }
 
 fn default_hide_on_blur() -> bool {
     true
+}
+
+fn default_shortcut() -> String {
+    "Alt+Shift+Space".to_string()
 }
 
 fn default_web_browser() -> String {
@@ -63,6 +71,8 @@ pub struct AppConfig {
     pub max_depth: usize,
     #[serde(default = "default_hide_on_blur")]
     pub hide_on_blur: bool,
+    #[serde(default = "default_shortcut")]
+    pub shortcut: String,
     #[serde(default = "default_web_browser")]
     pub web_browser: String,
     #[serde(default = "default_web_search_template")]
@@ -132,6 +142,7 @@ impl Default for AppConfig {
             .collect(),
             max_depth: 7,
             hide_on_blur: true,
+            shortcut: default_shortcut(),
             web_browser: default_web_browser(),
             web_search_template: default_web_search_template(),
             terminal: default_terminal(),

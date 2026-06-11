@@ -8,10 +8,11 @@ SpotSearch provides instant access to application launching and file indexing, r
 
 ## 🚀 Features
 
-- **Global Hotkey:** Press `Super+Space` to instantly toggle the launcher overlay.
+- **Global Hotkey:** Press `Alt+Shift+Space` to instantly toggle the launcher overlay.
 - **Sleek Floating UI:** A gorgeous, glassmorphic, and borderless search bar centered on your screen.
 - **Application Discovery:** Automatically indexes and runs desktop applications from `/usr/share/applications` and local user applications.
 - **File Search:** Fast indexer backend in Rust for finding files instantly as you type.
+- **AI Assistant:** Instantly chat with Google's AI models. (Powered by the Antigravity CLI, `agy`). Just prefix your search with `>`
 - **Hyprland Optimization:** Natively supports window floating rules for the Hyprland Wayland compositor.
 
 ---
@@ -205,7 +206,7 @@ windowrulev2 = center, class:^(spotsearch)$, title:^(SpotSearch)$
 ```
 
 #### 🎮 Keyboard Shortcut
-Bind your preferred hotkey (e.g. `Super+Space` or `Super+D`) to toggle the launcher:
+Bind your preferred hotkey (e.g. `Alt+Shift+Space` or `Super+D`) to toggle the launcher:
 
 ```ini
 # Toggle SpotSearch Overlay
@@ -254,7 +255,7 @@ Traditional desktop environments can bind the toggle command natively via system
 2. Add a new custom shortcut:
    - **Name:** `Toggle SpotSearch`
    - **Command:** `spotsearch --toggle`
-   - **Shortcut:** Press `Super+Space` (or your preferred combination).
+   - **Shortcut:** Press `Alt+Shift+Space` (or your preferred combination).
 
 To add SpotSearch to autostart:
 - Search for **Startup Applications** in your menu, click **Add**, and input `spotsearch` as the command.

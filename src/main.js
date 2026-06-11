@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.core;
+const { listen } = window.__TAURI__.event;
 
 let inputEl;
 let resultsEl;
@@ -8,12 +9,36 @@ let searchId = 0;
 
 function updateVisibility(query) {
   const container = document.getElementById("app");
+  container.classList.remove("show-results", "show-ai");
+  document.getElementById("results-container").style.display = "none";
+  document.getElementById("ai-container").style.display = "none";
+
   if (query && query.trim()) {
-    container.classList.add("show-results");
+    if (query.startsWith(">")) {
+      container.classList.add("show-ai");
+      document.getElementById("ai-container").style.display = "flex";
+      
+      const aiQuery = query.substring(1).trim();
+      const aiContent = document.getElementById("ai-content");
+      if (aiQuery === "") {
+        aiContent.innerHTML = `<div class="ai-welcome">Press Enter to ask SpotSearch AI...</div>`;
+      } else if (!isAiRunning && !hasAiResponded) {
+        aiContent.innerHTML = `<div class="ai-welcome">Ready to ask: "${aiQuery}"<br><br><span style="font-size:12px; opacity: 0.6;">Press Enter to send</span></div>`;
+      }
+    } else {
+      container.classList.add("show-results");
+      document.getElementById("results-container").style.display = "flex";
+      isAiRunning = false;
+      hasAiResponded = false;
+    }
   } else {
-    container.classList.remove("show-results");
+    isAiRunning = false;
+    hasAiResponded = false;
   }
 }
+
+let isAiRunning = false;
+let hasAiResponded = false;
 
 window.addEventListener("DOMContentLoaded", () => {
   inputEl = document.getElementById("search-input");
@@ -32,13 +57,55 @@ window.addEventListener("DOMContentLoaded", () => {
       console.error("Failed to load custom theme:", err);
     });
 
+  // Listen for live theme updates from settings
+  listen("theme-changed", (event) => {
+    if (event.payload) {
+      applyTheme(event.payload);
+    }
+  });
+
+  // Listen for AI chunks
+  listen("ai-chunk", (event) => {
+    const aiContent = document.getElementById("ai-content");
+    if (!hasAiResponded) {
+      aiContent.innerHTML = "";
+      hasAiResponded = true;
+    }
+    
+    // Create a text node to safely append HTML-escaped text
+    const span = document.createElement("span");
+    span.textContent = event.payload;
+    aiContent.appendChild(span);
+    
+    // Auto scroll to bottom
+    aiContent.scrollTop = aiContent.scrollHeight;
+  });
+
+  listen("ai-done", () => {
+    isAiRunning = false;
+  });
+
+  listen("ai-error", (event) => {
+    const aiContent = document.getElementById("ai-content");
+    aiContent.innerHTML = `<div style="color: var(--danger);">${event.payload}</div>`;
+    isAiRunning = false;
+  });
+
   let debounceTimer;
   inputEl.addEventListener("input", (e) => {
-    updateVisibility(e.target.value);
+    const val = e.target.value;
+    // reset AI state if they change the prompt (unless it's currently streaming)
+    if (val.startsWith(">") && !isAiRunning) {
+      hasAiResponded = false;
+    }
+    updateVisibility(val);
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      search(e.target.value);
-    }, 15); // Ultra-responsive 15ms debounce
+    
+    if (!val.startsWith(">")) {
+      debounceTimer = setTimeout(() => {
+        search(val);
+      }, 15); // Ultra-responsive 15ms debounce
+    }
   });
 
   document.addEventListener("keydown", (e) => {
@@ -62,8 +129,20 @@ window.addEventListener("DOMContentLoaded", () => {
       }
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (currentResults.length > 0) {
-        openResult(currentResults[selectedIndex]);
+      const val = inputEl.value;
+      if (val.startsWith(">")) {
+        const aiQuery = val.substring(1).trim();
+        if (aiQuery && !isAiRunning) {
+          isAiRunning = true;
+          hasAiResponded = false;
+          const aiContent = document.getElementById("ai-content");
+          aiContent.innerHTML = `<div style="text-align: center; margin-top: 20px; color: var(--accent-bar);">Thinking...</div>`;
+          invoke("ask_ai", { query: aiQuery });
+        }
+      } else {
+        if (currentResults.length > 0) {
+          openResult(currentResults[selectedIndex]);
+        }
       }
     }
   });
@@ -501,13 +580,40 @@ async function openResult(result) {
   }
 }
 
+// Helper to convert hex to rgba strings
+function hexToRgba(hex, alpha) {
+  if (!hex || typeof hex !== 'string') return hex;
+  if (!hex.startsWith('#')) return hex;
+  hex = hex.replace('#', '');
+  if (hex.length === 3) {
+    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+  }
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function applyTheme(colors) {
   if (!colors) return;
   const root = document.documentElement;
-  root.style.setProperty('--bg-color', colors.bg_color || '#2b2b2b');
+  
   root.style.setProperty('--text-color', colors.text_color || '#f4f4f5');
   root.style.setProperty('--text-dim', colors.text_dim || '#a1a1aa');
   root.style.setProperty('--accent-bg', colors.accent_bg || 'rgba(139, 92, 246, 0.15)');
   root.style.setProperty('--accent-bar', colors.accent_bar || '#8560f6');
   root.style.setProperty('--glow-color', colors.glow_color || 'rgba(139, 92, 246, 0.12)');
+  
+  if (colors.border_radius !== undefined) {
+    root.style.setProperty('--radius', `${colors.border_radius}px`);
+  }
+  
+  let bgColor = colors.bg_color || '#2b2b2b';
+  if (colors.backdrop_blur !== undefined) {
+    if (colors.backdrop_blur > 0) {
+      bgColor = hexToRgba(bgColor, 0.75);
+    }
+    root.style.setProperty('--backdrop-blur', `${colors.backdrop_blur}px`);
+  }
+  root.style.setProperty('--bg-color', bgColor);
 }

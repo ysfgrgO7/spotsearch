@@ -15,6 +15,16 @@ pub struct AppResult {
     pub keywords: Option<String>,
     pub generic_name: Option<String>,
     pub terminal: bool,
+    #[serde(skip)]
+    pub name_lower: String,
+    #[serde(skip)]
+    pub exec_lower: String,
+    #[serde(skip)]
+    pub desktop_file_lower: String,
+    #[serde(skip)]
+    pub keywords_lower: String,
+    #[serde(skip)]
+    pub generic_name_lower: String,
 }
 
 struct CacheData {
@@ -187,16 +197,22 @@ pub fn get_apps() -> Vec<AppResult> {
     if needs_reload {
         let mut apps = Vec::new();
         let mut dir_modified_times = HashMap::new();
+        let mut seen_names = std::collections::HashSet::new();
 
         for dir in &dirs {
             let mtime = fs::metadata(dir).and_then(|m| m.modified()).ok();
             dir_modified_times.insert(dir.clone(), mtime);
 
             if let Ok(entries) = fs::read_dir(dir) {
-                for entry in entries.flatten() {
+                let mut sorted_entries: Vec<_> = entries.flatten().collect();
+                sorted_entries.sort_by_key(|e| e.path());
+                
+                for entry in sorted_entries {
                     if entry.path().extension().and_then(|s| s.to_str()) == Some("desktop") {
                         if let Some(app) = parse_desktop_file(&entry.path()) {
-                            apps.push(app);
+                            if seen_names.insert(app.name.clone()) {
+                                apps.push(app);
+                            }
                         }
                     }
                 }
@@ -299,6 +315,12 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
     // Resolve icon to a data URI
     let icon_data = icon_name.as_deref().and_then(resolve_icon_to_data_uri);
 
+    let name_lower = name.to_lowercase();
+    let exec_lower = exec.to_lowercase();
+    let desktop_file_lower = path.to_string_lossy().to_string().to_lowercase();
+    let keywords_lower = keywords.as_deref().unwrap_or("").to_lowercase();
+    let generic_name_lower = generic_name.as_deref().unwrap_or("").to_lowercase();
+
     Some(AppResult {
         name,
         exec,
@@ -308,6 +330,11 @@ fn parse_desktop_file(path: &Path) -> Option<AppResult> {
         keywords,
         generic_name,
         terminal,
+        name_lower,
+        exec_lower,
+        desktop_file_lower,
+        keywords_lower,
+        generic_name_lower,
     })
 }
 

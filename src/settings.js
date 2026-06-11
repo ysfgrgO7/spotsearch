@@ -1,4 +1,5 @@
 const { invoke } = window.__TAURI__.core;
+const { emit } = window.__TAURI__.event;
 
 let currentConfig = {
   theme: {
@@ -7,7 +8,9 @@ let currentConfig = {
     text_dim: "#a1a1aa",
     accent_bg: "rgba(139, 92, 246, 0.15)",
     accent_bar: "#8560f6",
-    glow_color: "rgba(139, 92, 246, 0.12)"
+    glow_color: "rgba(139, 92, 246, 0.12)",
+    border_radius: 28,
+    backdrop_blur: 0
   },
   search_paths: [],
   excluded_dirs: [],
@@ -21,6 +24,8 @@ const tabContents = document.querySelectorAll(".tab-content");
 const depthInput = document.getElementById("depth-input");
 const depthVal = document.getElementById("depth-val");
 const hideOnBlurInput = document.getElementById("hide-on-blur-input");
+const shortcutInput = document.getElementById("shortcut-input");
+const resetShortcutBtn = document.getElementById("reset-shortcut-btn");
 const webBrowserInput = document.getElementById("web-browser-input");
 const webSearchTemplateInput = document.getElementById("web-search-template-input");
 const terminalInput = document.getElementById("terminal-input");
@@ -43,6 +48,12 @@ const bgPicker = document.getElementById("color-bg");
 const textPicker = document.getElementById("color-text");
 const dimPicker = document.getElementById("color-dim");
 const accentPicker = document.getElementById("color-accent");
+
+// Advanced Styling
+const radiusInput = document.getElementById("radius-input");
+const radiusVal = document.getElementById("radius-val");
+const blurInput = document.getElementById("blur-input");
+const blurVal = document.getElementById("blur-val");
 
 // Updates UI Elements
 const currentVersionDisplay = document.getElementById("current-version-display");
@@ -80,8 +91,41 @@ function setupTabs() {
       tab.classList.add("active");
       const activeTabId = tab.dataset.tab;
       document.getElementById(activeTabId).classList.add("active");
+      
+      if (activeTabId === "ai") {
+        checkAgyStatus();
+      }
     });
   });
+}
+
+async function checkAgyStatus() {
+  const iconEl = document.getElementById("agy-status-icon");
+  const textEl = document.getElementById("agy-status-text");
+  const hintEl = document.getElementById("agy-status-hint");
+  
+  iconEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>';
+  textEl.textContent = "Checking status...";
+  textEl.style.color = "var(--text-color)";
+  hintEl.textContent = "";
+
+  try {
+    const isInstalled = await invoke("check_agy_status");
+    if (isInstalled) {
+      iconEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>';
+      textEl.textContent = "Installed and Ready";
+      textEl.style.color = "#22c55e";
+    } else {
+      iconEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+      textEl.textContent = "Not Installed";
+      textEl.style.color = "#ef4444";
+      hintEl.textContent = "agy is required for SpotSearch AI. Click 'Visit Website' to install it.";
+    }
+  } catch (err) {
+    iconEl.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>';
+    textEl.textContent = "Error checking status";
+    textEl.style.color = "#ef4444";
+  }
 }
 
 // Load current configuration from backend
@@ -93,6 +137,7 @@ async function loadConfig() {
     depthInput.value = currentConfig.max_depth;
     depthVal.textContent = currentConfig.max_depth;
     hideOnBlurInput.checked = currentConfig.hide_on_blur !== false;
+    shortcutInput.value = currentConfig.shortcut || "Alt+Shift+Space";
     webBrowserInput.value = currentConfig.web_browser || "default";
     webSearchTemplateInput.value = currentConfig.web_search_template || "https://www.google.com/search?q={query}";
     terminalInput.value = currentConfig.terminal || "default";
@@ -111,6 +156,15 @@ async function loadConfig() {
 
       accentPicker.value = currentConfig.theme.accent_bar;
       accentPicker.nextElementSibling.textContent = currentConfig.theme.accent_bar;
+
+      if (currentConfig.theme.border_radius !== undefined) {
+        radiusInput.value = currentConfig.theme.border_radius;
+        radiusVal.textContent = currentConfig.theme.border_radius;
+      }
+      if (currentConfig.theme.backdrop_blur !== undefined) {
+        blurInput.value = currentConfig.theme.backdrop_blur;
+        blurVal.textContent = currentConfig.theme.backdrop_blur;
+      }
 
       // Apply theme to settings window immediately on load
       applyTheme(currentConfig.theme);
@@ -220,6 +274,20 @@ function applyTheme(colors) {
   root.style.setProperty('--accent-bg', colors.accent_bg);
   root.style.setProperty('--accent-bar', colors.accent_bar);
   root.style.setProperty('--glow-color', colors.glow_color);
+
+  if (colors.border_radius !== undefined) {
+    root.style.setProperty('--app-radius', `${colors.border_radius}px`);
+  }
+  if (colors.backdrop_blur !== undefined) {
+    // Adding a fallback if transparent backgrounds are not supported, but usually ok
+    const bgWithAlpha = hexToRgba(colors.bg_color, colors.backdrop_blur > 0 ? 0.75 : 1.0);
+    root.style.setProperty('--bg-color', colors.backdrop_blur > 0 ? bgWithAlpha : colors.bg_color);
+    root.style.setProperty('--backdrop-blur', `${colors.backdrop_blur}px`);
+  }
+  
+  if (typeof emit === 'function') {
+    emit("theme-changed", colors);
+  }
 }
 
 // Show Toast Status Messages
@@ -239,9 +307,116 @@ function setupEventListeners() {
     currentConfig.max_depth = parseInt(e.target.value, 10);
   });
 
+  // Advanced Styling listeners
+  radiusInput.addEventListener("input", (e) => {
+    radiusVal.textContent = e.target.value;
+    if (!currentConfig.theme) currentConfig.theme = {};
+    currentConfig.theme.border_radius = parseInt(e.target.value, 10);
+    applyTheme(currentConfig.theme);
+  });
+
+  blurInput.addEventListener("input", (e) => {
+    blurVal.textContent = e.target.value;
+    if (!currentConfig.theme) currentConfig.theme = {};
+    currentConfig.theme.backdrop_blur = parseInt(e.target.value, 10);
+    applyTheme(currentConfig.theme);
+  });
+
   // Hide on Blur checkbox listener
   hideOnBlurInput.addEventListener("change", (e) => {
     currentConfig.hide_on_blur = e.target.checked;
+  });
+
+  // Shortcut recording logic
+  let isRecordingShortcut = false;
+
+  shortcutInput.addEventListener("click", async () => {
+    isRecordingShortcut = true;
+    await invoke("unregister_shortcut");
+    shortcutInput.value = "Recording... Press keys";
+    shortcutInput.style.borderColor = "var(--accent-bar)";
+    shortcutInput.focus();
+  });
+
+  shortcutInput.addEventListener("blur", async () => {
+    if (isRecordingShortcut) {
+      isRecordingShortcut = false;
+      await invoke("register_shortcut");
+      shortcutInput.value = currentConfig.shortcut || "Alt+Shift+Space";
+      shortcutInput.style.borderColor = "";
+    }
+  });
+
+  shortcutInput.addEventListener("keydown", async (e) => {
+    if (!isRecordingShortcut) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation();
+    
+    let keys = [];
+    if (e.metaKey || e.key === "Meta" || e.key === "Super" || e.key === "OS") keys.push("Super");
+    if (e.ctrlKey || e.key === "Control") keys.push("Control");
+    if (e.altKey || e.key === "Alt") keys.push("Alt");
+    if (e.shiftKey || e.key === "Shift") keys.push("Shift");
+    
+    // Ensure unique keys just in case
+    keys = [...new Set(keys)];
+    
+    let key = e.key;
+    
+    // If only modifier is pressed, update input to show feedback
+    if (["Control", "Shift", "Alt", "Meta", "Super", "OS"].includes(key)) {
+      shortcutInput.value = keys.join("+") + "+";
+      return;
+    }
+    
+    if (key === " ") key = "space";
+    else if (key === "Escape") {
+      isRecordingShortcut = false;
+      await invoke("register_shortcut");
+      shortcutInput.value = currentConfig.shortcut || "Alt+Shift+Space";
+      shortcutInput.style.borderColor = "";
+      return;
+    } else if (key.length === 1) {
+      key = key.toLowerCase();
+    }
+    
+    keys.push(key);
+    const shortcutStr = keys.join("+");
+    
+    if (keys.includes("Super")) {
+      alert("Error: Keybindings starting with Super are not allowed.");
+      shortcutInput.value = "Super key not allowed";
+      setTimeout(() => {
+        if (isRecordingShortcut) {
+          shortcutInput.value = "Recording... Press keys";
+        }
+      }, 1000);
+      return;
+    }
+    
+    // Check if at least one modifier key is present
+    if (!["Control", "Alt", "Shift", "Super"].some(mod => keys.includes(mod))) {
+      shortcutInput.value = "Requires MOD key";
+      setTimeout(() => {
+        if (isRecordingShortcut) {
+          shortcutInput.value = "Recording... Press keys";
+        }
+      }, 1000);
+      return;
+    }
+    
+    shortcutInput.value = shortcutStr;
+    currentConfig.shortcut = shortcutStr;
+    isRecordingShortcut = false;
+    await invoke("register_shortcut");
+    shortcutInput.style.borderColor = "";
+    shortcutInput.blur();
+  });
+
+  resetShortcutBtn.addEventListener("click", () => {
+    currentConfig.shortcut = "Alt+Shift+Space";
+    shortcutInput.value = "Alt+Shift+Space";
   });
 
   // Web Browser input change listener
